@@ -100,6 +100,20 @@ CREATE TABLE custom_columns (
                     normalized BOOL NOT NULL,
                     UNIQUE(label)
                 );
+CREATE TABLE indexed_files (
+    book_id INTEGER NOT NULL,
+    format TEXT NOT NULL COLLATE NOCASE,
+    file_path TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    modified_time_ns INTEGER NOT NULL,
+    PRIMARY KEY (book_id, format),
+    FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
+);
+CREATE TRIGGER indexed_files_book_deleted
+    AFTER DELETE ON books
+    BEGIN
+        DELETE FROM indexed_files WHERE book_id = OLD.id;
+    END;
 CREATE TABLE data ( id     INTEGER PRIMARY KEY,
                             book   INTEGER NOT NULL,
                             format TEXT NOT NULL COLLATE NOCASE,
@@ -660,4 +674,4 @@ CREATE TRIGGER series_update_trg
         END;
 -- Set application id to "cali" as a big endian number
 PRAGMA application_id = 0x63616c69;
-pragma user_version=28;
+pragma user_version=29;
