@@ -65,6 +65,32 @@ def indexed_database_path(library_directory: str | os.PathLike[str]) -> Path:
     return library / 'metadata.db'
 
 
+
+def validate_indexed_storage_separation(library_directory: str | os.PathLike[str]) -> None:
+    """Reject obvious database/source overlap; not a network filesystem detector.
+
+    Does not probe source-root availability, so offline NAS paths are allowed.
+    Full local-volume verification is required before enabling GUI creation.
+    """
+    library_input = Path(library_directory).expanduser()
+    if library_input.is_symlink():
+        raise InvalidIndexedLibraryConfig('Indexed library directory must not be a symbolic link')
+    library = library_input.resolve()
+    config = load_indexed_library_config(library)
+    if config is None:
+        raise InvalidIndexedLibraryConfig('Not an Indexed library')
+    for root in config['source_roots']:
+        source = Path(root).expanduser().resolve(strict=False)
+        try:
+            common = os.path.commonpath((str(library), str(source)))
+        except ValueError:  # Different drives on Windows
+            continue
+        if common == str(library) or common == str(source):
+            raise InvalidIndexedLibraryConfig(
+                'Indexed database directory must not contain or be inside an ebook source root'
+            )
+
+
 def check_indexed_library_startup(library_directory: str | os.PathLike[str]) -> None:
     """Fail closed for Indexed libraries until file-operation guards exist.
 
