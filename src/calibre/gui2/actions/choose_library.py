@@ -315,6 +315,9 @@ class ChooseLibraryAction(InterfaceAction):
             inspect_action = QAction(_('Inspect Indexed Library (read-only)'), self.gui)
             inspect_action.triggered.connect(self.inspect_indexed_library_dialog)
             self.choose_menu.addAction(inspect_action)
+            discovery_action = QAction(_('Preview Indexed Source Files (read-only)'), self.gui)
+            discovery_action.triggered.connect(self.preview_indexed_source_files)
+            self.choose_menu.addAction(discovery_action)
             self.quick_menu = QMenu(_('Quick switch'))
             self.quick_menu_action = self.choose_menu.addMenu(self.quick_menu)
             self.choose_menu.addMenu(self.choose_library_icon_menu)
@@ -380,6 +383,12 @@ class ChooseLibraryAction(InterfaceAction):
         from calibre.gui2.dialogs.indexed_library_creation import IndexedLibraryCreationDialog
 
         dialog = IndexedLibraryCreationDialog(self.gui)
+        dialog.exec()
+
+    def preview_indexed_source_files(self, *args) -> None:
+        from calibre.gui2.dialogs.indexed_library_discovery import IndexedLibraryDiscoveryDialog
+
+        dialog = IndexedLibraryDiscoveryDialog(self.gui)
         dialog.exec()
 
     def inspect_indexed_library_dialog(self, *args) -> None:
