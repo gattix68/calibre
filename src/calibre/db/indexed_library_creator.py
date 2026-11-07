@@ -43,6 +43,7 @@ def create_indexed_library(library_directory, source_roots, base_schema_sql):
     library = Path(plan['library_directory'])
     dir_fd = os.open(library, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     marker_stat = None
+    completion_stat = None
     try:
         before = os.fstat(dir_fd)
         current = os.stat(library, follow_symlinks=False)
@@ -80,13 +81,29 @@ def create_indexed_library(library_directory, source_roots, base_schema_sql):
             COMPLETION_FILENAME, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW,
             0o600, dir_fd=dir_fd,
         )
+        completion_stat = os.fstat(completion_fd)
         with os.fdopen(completion_fd, 'wb') as completion:
             completion.write(b'indexed-library-complete-v1\n')
             completion.flush()
             os.fsync(completion.fileno())
         os.fsync(dir_fd)
+        # Detect changes made while the completion marker was being written.
+        _check_final_inputs(dir_fd, library, plan, marker_identity, db_identity, payload)
+        if set(os.listdir(dir_fd)) != {CONFIG_FILENAME, 'metadata.db', COMPLETION_FILENAME}:
+            raise RuntimeError('Indexed directory changed during completion publication')
         return dbpath
     except BaseException:
+        # If publication fails, remove only the completion file created by
+        # this operation. Leave configuration/database for recovery review.
+        if completion_stat is not None:
+            try:
+                published = os.stat(COMPLETION_FILENAME, dir_fd=dir_fd,
+                                    follow_symlinks=False)
+                if (published.st_dev, published.st_ino) == (completion_stat.st_dev, completion_stat.st_ino):
+                    os.unlink(COMPLETION_FILENAME, dir_fd=dir_fd)
+                    os.fsync(dir_fd)
+            except FileNotFoundError:
+                pass
         # Preserve the marker if a database exists, so interrupted creations
         # remain identifiable and are never mistaken for Managed libraries.
         if marker_stat is not None and set(os.listdir(dir_fd)) == {CONFIG_FILENAME}:
