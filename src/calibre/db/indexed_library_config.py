@@ -80,3 +80,23 @@ def check_indexed_library_startup(library_directory: str | os.PathLike[str]) -> 
         'Indexed Library Mode is not yet available: external file '
         'safety protections must be completed before opening this library'
     )
+
+
+# Indexed-only extension. Never include this in the managed schema or its
+# automatic migration chain. Activation remains blocked by the startup guard.
+INDEXED_FILES_SCHEMA = """
+CREATE TABLE indexed_files (
+    book_id INTEGER NOT NULL,
+    format TEXT NOT NULL COLLATE NOCASE,
+    file_path TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    modified_time_ns INTEGER NOT NULL,
+    PRIMARY KEY (book_id, format),
+    FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
+);
+CREATE TRIGGER indexed_files_book_deleted
+    AFTER DELETE ON books
+    BEGIN
+        DELETE FROM indexed_files WHERE book_id = OLD.id;
+    END;
+"""
