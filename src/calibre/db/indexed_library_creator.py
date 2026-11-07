@@ -8,6 +8,9 @@ from pathlib import Path
 from calibre.db.indexed_library_config import CONFIG_FILENAME, CONFIG_VERSION, MODE
 from calibre.db.indexed_library_creation import validate_indexed_creation
 from calibre.db.indexed_database_init import initialize_indexed_database
+from calibre.db.indexed_database_recovery import inspect_indexed_database
+
+COMPLETION_FILENAME = 'indexed-library.complete'
 
 
 def create_indexed_library(library_directory, source_roots, base_schema_sql):
@@ -45,9 +48,24 @@ def create_indexed_library(library_directory, source_roots, base_schema_sql):
         os.fsync(dir_fd)
         # The initializer independently revalidates local storage and marker.
         dbpath = initialize_indexed_database(library, base_schema_sql)
+        # An interrupted operation cannot publish the completion sentinel.
+        inspect_indexed_database(library)
+        if set(os.listdir(dir_fd)) != {CONFIG_FILENAME, 'metadata.db'}:
+            raise RuntimeError('Unexpected files appeared during Indexed creation')
+        completion_fd = os.open(
+            COMPLETION_FILENAME, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW,
+            0o600, dir_fd=dir_fd,
+        )
+        with os.fdopen(completion_fd, 'wb') as completion:
+            completion.write(b'indexed-library-complete-v1\n')
+            completion.flush()
+            os.fsync(completion.fileno())
+        os.fsync(dir_fd)
         return dbpath
     except BaseException:
-        if marker_stat is not None:
+        # Preserve the marker if a database exists, so interrupted creations
+        # remain identifiable and are never mistaken for Managed libraries.
+        if marker_stat is not None and 'metadata.db' not in os.listdir(dir_fd):
             try:
                 current = os.stat(CONFIG_FILENAME, dir_fd=dir_fd, follow_symlinks=False)
             except FileNotFoundError:
