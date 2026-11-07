@@ -27,7 +27,8 @@ def create_indexed_library(library_directory, source_roots, base_schema_sql):
     try:
         before = os.fstat(dir_fd)
         current = os.stat(library, follow_symlinks=False)
-        if (before.st_dev, before.st_ino) != (current.st_dev, current.st_ino):
+        if ((before.st_dev, before.st_ino) != (current.st_dev, current.st_ino)
+                or (before.st_dev, before.st_ino) != plan['destination_identity']):
             raise RuntimeError('Indexed destination changed before creation')
         if os.listdir(dir_fd):
             raise FileExistsError('Indexed destination is no longer empty')
