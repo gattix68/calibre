@@ -28,6 +28,27 @@ def startup_guard():
 
 
 class IndexedLibraryStartupTests(unittest.TestCase):
+    def test_local_database_path_resolution(self):
+        with tempfile.TemporaryDirectory() as temp:
+            library = Path(temp) / 'local-library'
+            library.mkdir()
+            with self.assertRaises(config_module.InvalidIndexedLibraryConfig):
+                config_module.indexed_database_path(library)
+
+            marker = library / config_module.CONFIG_FILENAME
+            marker.write_text(json.dumps({
+                'version': 1, 'mode': 'indexed',
+                'source_roots': ['/nonexistent/offline-nas/books'],
+            }), encoding='utf-8')
+            expected = library / 'metadata.db'
+            self.assertEqual(config_module.indexed_database_path(library), expected)
+            self.assertFalse(expected.exists())
+
+            marker.write_text('{"version":1,"mode":"managed","source_roots":[]}', encoding='utf-8')
+            with self.assertRaises(config_module.InvalidIndexedLibraryConfig):
+                config_module.indexed_database_path(library)
+            self.assertFalse(expected.exists())
+
     def test_modes_and_offline_root(self):
         guard = startup_guard()
         with tempfile.TemporaryDirectory() as temp:
