@@ -46,7 +46,17 @@ def crash_at_publication(*args, **kwargs):
     os.kill(os.getpid(), signal.SIGKILL)
     return result
 
-creator.os.link = crash_at_publication
+creator.os.link = crash_at_publication if phase != 'cleanup' else real_link
+real_unlink = os.unlink
+
+def crash_after_pending_cleanup(path, *args, **kwargs):
+    result = real_unlink(path, *args, **kwargs)
+    if path == creator.PENDING_COMPLETION_FILENAME:
+        os.kill(os.getpid(), signal.SIGKILL)
+    return result
+
+if phase == 'cleanup':
+    creator.os.unlink = crash_after_pending_cleanup
 creator.create_indexed_library(library, [str(offline)], schema)
 """
 
@@ -95,14 +105,16 @@ class PublicationBoundaryTests(unittest.TestCase):
             pending = library / 'indexed-library.complete.pending'
             final = library / 'indexed-library.complete'
             self.assertEqual(pending.read_bytes(), b'indexed-library-complete-v1\n')
-            self.assertEqual(final.exists(), phase == 'after')
+            self.assertEqual(final.exists(), phase in ('after', 'cleanup'))
             if phase == 'after':
                 self.assertEqual(final.read_bytes(), pending.read_bytes())
+            if phase == 'cleanup':
+                self.assertEqual(final.read_bytes(), b'indexed-library-complete-v1\\n')
             verifier = subprocess.run(
                 [sys.executable, '-c', VERIFY, str(ROOT), str(library)],
                 capture_output=True, text=True, timeout=30,
             )
-            self.assertEqual(verifier.returncode, 0, verifier.stderr)
+            self.assertEqual(verifier.returncode, 1 if phase == 'cleanup' else 0, verifier.stderr)
             self.assertFalse(offline.exists())
 
     def test_crash_immediately_before_atomic_publication(self):
@@ -110,6 +122,11 @@ class PublicationBoundaryTests(unittest.TestCase):
 
     def test_crash_immediately_after_atomic_publication(self):
         self.check_phase('after')
+
+    def test_crash_after_pending_cleanup_before_directory_fsync(self):
+        # This is the logical commit point: verification can accept the
+        # completed directory, but SIGKILL does not establish power-loss durability.
+        self.check_phase('cleanup')
 
 
 if __name__ == '__main__':
