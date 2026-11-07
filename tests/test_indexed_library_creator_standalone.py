@@ -102,6 +102,40 @@ class CreatorTests(unittest.TestCase):
         self.assertFalse((self.library / creator.COMPLETION_FILENAME).exists())
         self.assertFalse(self.offline.exists())
 
+    def test_database_replacement_during_inspection_rejected(self):
+        original = creator.inspect_indexed_database
+
+        def replace_database(library):
+            result = original(library)
+            db = self.library / 'metadata.db'
+            replacement = self.library / 'replacement'
+            replacement.write_bytes(db.read_bytes())
+            replacement.replace(db)
+            return result
+
+        with patch.object(creator, 'inspect_indexed_database', side_effect=replace_database):
+            with self.assertRaisesRegex(RuntimeError, 'database changed'):
+                creator.create_indexed_library(self.library, [str(self.offline)], SCHEMA)
+        self.assertFalse((self.library / creator.COMPLETION_FILENAME).exists())
+        self.assertTrue((self.library / config.CONFIG_FILENAME).exists())
+        self.assertFalse(self.offline.exists())
+
+    def test_configuration_mutation_during_inspection_rejected(self):
+        original = creator.inspect_indexed_database
+
+        def modify_config(library):
+            result = original(library)
+            marker = self.library / config.CONFIG_FILENAME
+            marker.write_bytes(marker.read_bytes() + b' ')
+            return result
+
+        with patch.object(creator, 'inspect_indexed_database', side_effect=modify_config):
+            with self.assertRaisesRegex(RuntimeError, 'configuration changed'):
+                creator.create_indexed_library(self.library, [str(self.offline)], SCHEMA)
+        self.assertFalse((self.library / creator.COMPLETION_FILENAME).exists())
+        self.assertTrue((self.library / 'metadata.db').exists())
+        self.assertFalse(self.offline.exists())
+
     def test_failed_final_inspection_preserves_incomplete_library(self):
         with patch.object(creator, 'inspect_indexed_database',
                           side_effect=recovery.IncompleteIndexedDatabase('simulated')):
