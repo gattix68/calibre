@@ -69,7 +69,7 @@ def intercepted_fdopen(fd, mode):
         target = os.readlink('/proc/self/fd/' + str(fd))
     except OSError:
         target = ''
-    if target.endswith('/indexed-library.complete'):
+    if target.endswith('/indexed-library.complete.pending'):
         return KillOnCompletionWrite(handle)
     return handle
 
@@ -81,8 +81,9 @@ creator.create_indexed_library(library, [str(offline)], schema)
                 capture_output=True, text=True, timeout=30,
             )
             self.assertEqual(result.returncode, -9, result.stderr)
-            completion = library / 'indexed-library.complete'
+            completion = library / 'indexed-library.complete.pending'
             self.assertTrue(completion.is_file())
+            self.assertFalse((library / 'indexed-library.complete').exists())
             self.assertEqual(completion.read_bytes(), b'indexed-')
             self.assertTrue((library / 'indexed-library.json').is_file())
             self.assertTrue((library / 'metadata.db').is_file())
