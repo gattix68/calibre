@@ -40,4 +40,6 @@ def validate_indexed_creation(library_directory, source_roots):
             raise InvalidIndexedCreation('Source root overlaps the local database directory')
         if str(source) not in normalized:
             normalized.append(str(source))
-    return {'library_directory': str(library), 'source_roots': normalized}
+    identity = library.stat(follow_symlinks=False)
+    return {'library_directory': str(library), 'source_roots': normalized,
+            'destination_identity': (identity.st_dev, identity.st_ino)}
