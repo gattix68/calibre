@@ -89,6 +89,7 @@ def initialize_indexed_database(library_directory, base_schema_sql):
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='indexed_files'"
                 ).fetchone() is None:
                     raise RuntimeError('Indexed file mapping table was not created')
+            verify_indexed_destination_identity(library, expected_identity)
             return dbpath
         except BaseException:
             # Only remove our original file from the opened directory.
