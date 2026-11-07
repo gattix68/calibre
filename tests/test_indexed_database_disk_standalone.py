@@ -38,6 +38,7 @@ class IndexedDatabaseDiskTests(unittest.TestCase):
                 db.create_function('title_sort', 1, lambda title: title)
                 db.create_function('uuid4', 0, lambda: 'disposable-test-uuid')
                 db.executescript(SCHEMA.read_text(encoding='utf-8'))
+                db.executescript(config.INDEXED_FILES_SCHEMA)
                 db.execute('PRAGMA foreign_keys=ON')
                 db.execute("INSERT INTO books(id, title) VALUES (1, 'Test Book')")
                 db.execute(
@@ -49,7 +50,7 @@ class IndexedDatabaseDiskTests(unittest.TestCase):
 
             self.assertTrue(dbpath.is_file())
             with sqlite3.connect(f'file:{dbpath}?mode=ro', uri=True) as db:
-                self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 29)
+                self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 28)
                 self.assertEqual(
                     db.execute('SELECT title FROM books WHERE id=1').fetchone()[0],
                     'Test Book',
