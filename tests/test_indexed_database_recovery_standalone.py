@@ -71,6 +71,17 @@ class RecoveryTests(unittest.TestCase):
         self.assertTrue(dbpath.exists())
         self.assertFalse(self.source.exists())
 
+    def test_dangling_sidecar_symlink_is_rejected_without_changes(self):
+        init.initialize_indexed_database(self.library, SCHEMA)
+        sidecar = self.library / 'metadata.db-wal'
+        sidecar.symlink_to(self.library / 'missing-journal-target')
+        self.assertFalse(sidecar.exists())
+        self.assertTrue(sidecar.is_symlink())
+        with self.assertRaisesRegex(recovery.IncompleteIndexedDatabase, 'sidecar'):
+            recovery.inspect_indexed_database(self.library)
+        self.assertTrue(sidecar.is_symlink())
+        self.assertFalse(self.source.exists())
+
     def test_completed_database_passes_read_only_inspection(self):
         dbpath = init.initialize_indexed_database(self.library, SCHEMA)
         before = dbpath.read_bytes()
