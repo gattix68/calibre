@@ -33,6 +33,7 @@ from calibre.db.constants import (
     TrashEntry,
 )
 from calibre.db.errors import NoSuchFormat
+from calibre.db.indexed_library_config import load_indexed_library_config
 from calibre.db.schema_upgrades import SchemaUpgrade
 from calibre.db.tables import (
     AuthorsTable,
@@ -715,6 +716,17 @@ class DB:
         if isinstance(library_path, bytes):
             library_path = library_path.decode(filesystem_encoding)
         self.field_metadata = FieldMetadata()
+
+        # Identify explicitly configured Indexed libraries before opening or
+        # creating metadata.db. Until the Indexed Mode file-operation guards
+        # are complete, fail closed rather than allowing managed-library
+        # startup to move or rename external ebooks.
+        indexed_config = load_indexed_library_config(library_path)
+        if indexed_config is not None:
+            raise RuntimeError(
+                'Indexed Library Mode is not yet available: external file '
+                'safety protections must be completed before opening this library'
+            )
 
         self.library_path = os.path.abspath(library_path)
         self.dbpath = os.path.join(library_path, 'metadata.db')
