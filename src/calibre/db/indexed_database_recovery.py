@@ -26,7 +26,7 @@ def inspect_indexed_database(library_directory):
     require_local_indexed_storage(library)
     dbpath = indexed_database_path(library)
     for suffix in ('-journal', '-wal', '-shm'):
-        if (library / ('metadata.db' + suffix)).exists():
+        if os.path.lexists(library / ('metadata.db' + suffix)):
             raise IncompleteIndexedDatabase('SQLite sidecar present; manual review required')
     if not dbpath.is_file() or dbpath.is_symlink():
         raise IncompleteIndexedDatabase('Indexed metadata.db missing or not a regular file')
