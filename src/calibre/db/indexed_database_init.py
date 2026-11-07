@@ -89,6 +89,19 @@ def initialize_indexed_database(library_directory, base_schema_sql):
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='indexed_files'"
                 ).fetchone() is None:
                     raise RuntimeError('Indexed file mapping table was not created')
+            # Ensure the completed SQLite file and its directory entry have
+            # reached the filesystem synchronization boundary before the
+            # creator is allowed to publish a completion marker.
+            sync_fd = os.open('metadata.db', os.O_RDONLY | os.O_NOFOLLOW,
+                              dir_fd=dir_fd)
+            try:
+                synced = os.fstat(sync_fd)
+                if (synced.st_dev, synced.st_ino) != (created_stat.st_dev, created_stat.st_ino):
+                    raise RuntimeError('Indexed database changed before durable sync')
+                os.fsync(sync_fd)
+            finally:
+                os.close(sync_fd)
+            os.fsync(dir_fd)
             verify_indexed_destination_identity(library, expected_identity)
             return dbpath
         except BaseException:
