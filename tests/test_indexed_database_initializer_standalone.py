@@ -145,5 +145,41 @@ class IndexedDatabaseInitializerTests(unittest.TestCase):
             self.assertFalse(offline.exists())
 
 
+    def test_directory_identity_change_refuses_creation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            library, offline = self.make_library(temp)
+            original = initializer.verify_indexed_destination_identity
+
+            def changed_identity(path, identity):
+                raise RuntimeError('Indexed database directory changed during initialization')
+
+            with patch.object(initializer, 'verify_indexed_destination_identity',
+                              side_effect=changed_identity):
+                with self.assertRaisesRegex(RuntimeError, 'directory changed'):
+                    initializer.initialize_indexed_database(library, SCHEMA)
+            self.assertFalse((library / 'metadata.db').exists())
+            self.assertFalse(offline.exists())
+
+    def test_storage_change_after_exclusive_create_cleans_up(self):
+        with tempfile.TemporaryDirectory() as temp:
+            library, offline = self.make_library(temp)
+            original = initializer.verify_indexed_destination_identity
+            checks = [0]
+
+            def fail_second_check(path, identity):
+                checks[0] += 1
+                if checks[0] == 2:
+                    raise storage.UnverifiedIndexedStorage('mount changed')
+                return original(path, identity)
+
+            with patch.object(initializer, 'verify_indexed_destination_identity',
+                              side_effect=fail_second_check):
+                with self.assertRaisesRegex(storage.UnverifiedIndexedStorage, 'mount changed'):
+                    initializer.initialize_indexed_database(library, SCHEMA)
+            self.assertEqual(checks[0], 2)
+            self.assertFalse((library / 'metadata.db').exists())
+            self.assertFalse(offline.exists())
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
