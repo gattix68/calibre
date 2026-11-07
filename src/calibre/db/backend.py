@@ -842,6 +842,9 @@ class DB:
                     )
 
         defs = self.prefs.defaults
+        # Indexed storage is experimental. Existing libraries remain managed.
+        # Do not enable indexed mode until all file mutation paths are guarded.
+        defs['library_storage_mode'] = 'managed'
         defs['gui_restriction'] = defs['cs_restriction'] = ''
         defs['categories_using_hierarchy'] = []
         defs['column_color_rules'] = []
