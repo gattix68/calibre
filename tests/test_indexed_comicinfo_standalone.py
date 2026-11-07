@@ -63,6 +63,18 @@ class ComicInfoTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             module._comicinfo_metadata(str(self.cbz), 'cbz')
 
+    def test_missing_writer_does_not_create_author(self):
+        xml = b'<ComicInfo><Title>Issue</Title><Series>Series</Series></ComicInfo>'
+        with zipfile.ZipFile(self.cbz, 'w') as archive:
+            archive.writestr('ComicInfo.xml', xml)
+        values, sources = module._comicinfo_metadata(str(self.cbz), 'cbz')
+        self.assertNotIn('authors', values)
+        self.assertNotIn('authors', sources)
+
+    def test_html_description_is_cleaned(self):
+        text = module._clean_description('<p><b>Summary:</b> Hello &amp; goodbye.</p><p>Second line.</p>')
+        self.assertEqual(text, 'Summary: Hello & goodbye. Second line.')
+
     def test_missing_comicinfo_returns_no_override(self):
         with zipfile.ZipFile(self.cbz, 'w') as archive:
             archive.writestr('001.jpg', b'page')
