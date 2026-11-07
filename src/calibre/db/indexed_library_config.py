@@ -63,3 +63,20 @@ def indexed_database_path(library_directory: str | os.PathLike[str]) -> Path:
     if config is None:
         raise InvalidIndexedLibraryConfig('Not an Indexed library')
     return library / 'metadata.db'
+
+
+def check_indexed_library_startup(library_directory: str | os.PathLike[str]) -> None:
+    """Fail closed for Indexed libraries until file-operation guards exist.
+
+    Managed libraries return normally. No database or ebook files are opened.
+    """
+    config = load_indexed_library_config(library_directory)
+    if config is None:
+        return
+    dbpath = indexed_database_path(library_directory)
+    if not dbpath.is_absolute():
+        raise RuntimeError('Indexed database path must be absolute')
+    raise RuntimeError(
+        'Indexed Library Mode is not yet available: external file '
+        'safety protections must be completed before opening this library'
+    )
