@@ -5,6 +5,7 @@
 Does not activate Indexed Mode, scan sources, or modify any files.
 """
 import os
+import fcntl
 import stat
 from pathlib import Path
 
@@ -30,6 +31,23 @@ def verify_indexed_library_complete(library_directory):
         raise IncompleteIndexedDatabase('Indexed library directory is a symbolic link')
     library = raw.resolve(strict=True)
     require_local_indexed_storage(library)
+    # Do not accept a completion marker while a cooperating creator is
+    # still publishing it. Advisory locking cannot prevent hostile writers
+    # or prove success after an abrupt process termination.
+    directory_fd = os.open(library, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        try:
+            fcntl.flock(directory_fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise IncompleteIndexedDatabase(
+                'Indexed library creation is still in progress'
+            ) from exc
+        return _verify_unlocked(library)
+    finally:
+        os.close(directory_fd)
+
+
+def _verify_unlocked(library):
     if not library.is_dir():
         raise IncompleteIndexedDatabase('Indexed library directory is missing')
     marker = library / CONFIG_FILENAME
