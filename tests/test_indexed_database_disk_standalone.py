@@ -34,6 +34,8 @@ class IndexedDatabaseDiskTests(unittest.TestCase):
                 config.check_indexed_library_startup(library)
 
             with sqlite3.connect(dbpath) as db:
+                # Calibre's schema triggers call this application-defined function.
+                db.create_function('title_sort', 1, lambda title: title)
                 db.executescript(SCHEMA.read_text(encoding='utf-8'))
                 db.execute('PRAGMA foreign_keys=ON')
                 db.execute("INSERT INTO books(id, title) VALUES (1, 'Test Book')")
