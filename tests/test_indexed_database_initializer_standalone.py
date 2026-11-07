@@ -225,6 +225,28 @@ class IndexedDatabaseInitializerTests(unittest.TestCase):
             self.assertFalse(offline.exists())
 
 
+    def test_completed_database_is_fsynced_before_return(self):
+        import os
+        with tempfile.TemporaryDirectory() as temp:
+            library, offline = self.make_library(temp)
+            original_fsync = initializer.os.fsync
+            synced = []
+
+            def observe_fsync(fd):
+                import stat
+                info = os.fstat(fd)
+                synced.append(('directory' if stat.S_ISDIR(info.st_mode)
+                               else 'database', info.st_ino))
+                return original_fsync(fd)
+
+            with patch.object(initializer.os, 'fsync', side_effect=observe_fsync):
+                dbpath = initializer.initialize_indexed_database(library, SCHEMA)
+            self.assertGreaterEqual(len(synced), 2)
+            self.assertEqual([kind for kind, _ in synced[-2:]],
+                             ['database', 'directory'])
+            self.assertEqual(synced[-2][1], dbpath.stat().st_ino)
+            self.assertFalse(offline.exists())
+
     def test_success_uses_delete_journal_without_sidecars(self):
         with tempfile.TemporaryDirectory() as temp:
             library, offline = self.make_library(temp)
