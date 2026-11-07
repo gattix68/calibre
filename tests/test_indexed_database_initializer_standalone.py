@@ -202,5 +202,31 @@ class IndexedDatabaseInitializerTests(unittest.TestCase):
             self.assertFalse(offline.exists())
 
 
+    def test_sqlite_uses_held_directory_after_path_replacement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            library, offline = self.make_library(temp)
+            renamed = Path(temp) / 'renamed-local'
+            original_connect = initializer.sqlite3.connect
+            observed = []
+
+            def rename_then_connect(path, *args, **kwargs):
+                observed.append(str(path))
+                library.rename(renamed)
+                library.mkdir()
+                (library / 'metadata.db').write_bytes(b'unrelated-file')
+                return original_connect(path, *args, **kwargs)
+
+            with patch.object(initializer.sqlite3, 'connect', side_effect=rename_then_connect):
+                result = initializer.initialize_indexed_database(library, SCHEMA)
+            self.assertTrue(observed[0].startswith('/proc/self/fd/'))
+            self.assertEqual(result, library / 'metadata.db')
+            self.assertEqual((library / 'metadata.db').read_bytes(), b'unrelated-file')
+            with original_connect(renamed / 'metadata.db') as db:
+                self.assertIsNotNone(db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE name='indexed_files'"
+                ).fetchone())
+            self.assertFalse(offline.exists())
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
