@@ -2083,6 +2083,24 @@ class DB:
                         return book_dir.path
 
     def format_abspath(self, book_id: int, fmt: str, fname: str, book_path: str, do_file_rename: bool = True) -> str | None:
+        # Indexed libraries store the authoritative absolute path for each
+        # format. Never fall back to Calibre's managed-library naming logic:
+        # doing so could rename or move a file that belongs to the user.
+        if getattr(self, 'is_indexed_library', False):
+            row = self.conn.execute(
+                'SELECT file_path FROM indexed_files WHERE book_id=? AND format=? COLLATE NOCASE',
+                (book_id, fmt.upper()),
+            ).fetchone()
+            if row is None:
+                return None
+            path = os.path.abspath(row[0])
+            try:
+                if not os.path.isfile(path):
+                    return None
+            except OSError:
+                return None
+            return path
+
         path = os.path.join(self.library_path, book_path)
         fmt = ('.' + fmt.lower()) if fmt else ''
         fmt_path = os.path.join(path, fname + fmt)
