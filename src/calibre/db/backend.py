@@ -2400,6 +2400,42 @@ class DB:
         current_name: str | None,
         mtime: float | None = None,
     ) -> tuple[int, str]:
+        if getattr(self, 'is_indexed_library', False):
+            # Updating an existing format in Indexed Mode means replacing its
+            # contents at the registered location, never constructing a
+            # Calibre-managed destination path or changing its filename.
+            row = self.conn.execute(
+                'SELECT file_path FROM indexed_files WHERE book_id=? AND format=? COLLATE NOCASE',
+                (book_id, fmt.upper()),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f'Indexed Library has no registered {fmt.upper()} format for book {book_id}')
+            dest = os.path.abspath(row[0])
+            if os.path.islink(dest) or not os.path.isfile(dest):
+                raise OSError(f'Indexed format is missing or is not a regular file: {dest}')
+            if isinstance(stream, str) and os.path.abspath(stream) == dest:
+                size = os.path.getsize(dest)
+            else:
+                directory = os.path.dirname(dest)
+                fd, temporary_path = tempfile.mkstemp(prefix='.calibre-indexed-', suffix='.' + fmt.lower(), dir=directory)
+                os.close(fd)
+                try:
+                    size = write_stream_to_format_file(stream, temporary_path)
+                    if mtime is not None:
+                        os.utime(temporary_path, (mtime, mtime))
+                    os.replace(temporary_path, dest)
+                except BaseException:
+                    with suppress(OSError):
+                        os.remove(temporary_path)
+                    raise
+            stat = os.stat(dest, follow_symlinks=False)
+            with self.conn:
+                self.conn.execute(
+                    'UPDATE indexed_files SET file_size=?, modified_time_ns=? WHERE book_id=? AND format=? COLLATE NOCASE',
+                    (stat.st_size, stat.st_mtime_ns, book_id, fmt.upper()),
+                )
+            return stat.st_size, os.path.splitext(os.path.basename(dest))[0]
+
         fmt = ('.' + fmt.lower()) if fmt else ''
         fname = self.construct_file_name(book_id, title, author, len(fmt))
         path = os.path.join(self.library_path, path)
