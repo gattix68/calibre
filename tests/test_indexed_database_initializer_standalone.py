@@ -225,5 +225,30 @@ class IndexedDatabaseInitializerTests(unittest.TestCase):
             self.assertFalse(offline.exists())
 
 
+    def test_success_uses_delete_journal_without_sidecars(self):
+        with tempfile.TemporaryDirectory() as temp:
+            library, offline = self.make_library(temp)
+            dbpath = initializer.initialize_indexed_database(library, SCHEMA)
+            with sqlite3.connect(dbpath) as db:
+                self.assertEqual(db.execute('PRAGMA journal_mode').fetchone()[0], 'delete')
+            for suffix in ('-journal', '-wal', '-shm'):
+                self.assertFalse((library / ('metadata.db' + suffix)).exists())
+            self.assertFalse(offline.exists())
+
+    def test_failure_after_schema_writes_leaves_no_sqlite_sidecars(self):
+        with tempfile.TemporaryDirectory() as temp:
+            library, offline = self.make_library(temp)
+            # Force an error after valid schema statements have run.
+            invalid_schema = SCHEMA + '\\nCREATE TABLE deliberately_invalid (;'
+            with self.assertRaises(sqlite3.Error):
+                initializer.initialize_indexed_database(library, invalid_schema)
+            for filename in ('metadata.db', 'metadata.db-journal',
+                             'metadata.db-wal', 'metadata.db-shm'):
+                self.assertFalse((library / filename).exists(), filename)
+            self.assertEqual(
+                sorted(p.name for p in library.iterdir()), [config.CONFIG_FILENAME])
+            self.assertFalse(offline.exists())
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
