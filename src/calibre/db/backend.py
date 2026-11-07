@@ -2406,7 +2406,7 @@ class DB:
             # Calibre-managed destination path or changing its filename.
             row = self.conn.execute(
                 'SELECT file_path FROM indexed_files WHERE book_id=? AND format=? COLLATE NOCASE',
-                (book_id, fmt.upper()),
+                (book_id, fmt.lstrip('.').upper()),
             ).fetchone()
             if row is None:
                 raise ValueError(f'Indexed Library has no registered {fmt.upper()} format for book {book_id}')
