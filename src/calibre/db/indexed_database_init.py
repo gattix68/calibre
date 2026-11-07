@@ -10,6 +10,7 @@ import sqlite3
 import uuid
 from pathlib import Path
 
+from calibre.db.indexed_storage_validation import require_local_indexed_storage
 from calibre.db.indexed_library_config import (
     INDEXED_FILES_SCHEMA, indexed_database_path, validate_indexed_storage_separation,
 )
@@ -25,6 +26,8 @@ def initialize_indexed_database(library_directory, base_schema_sql):
     if not library.is_dir():
         raise FileNotFoundError(f'Indexed library directory does not exist: {library}')
     validate_indexed_storage_separation(library_directory)
+    # Check the actual destination mount before creating any database file.
+    require_local_indexed_storage(library)
     dbpath = indexed_database_path(library)
     # A new Indexed library must have its own otherwise-empty directory.
     # Refuse to initialize over a Managed library or unrelated user files.
