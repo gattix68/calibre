@@ -45,7 +45,6 @@ def create_indexed_library(library_directory, source_roots, base_schema_sql):
         os.fsync(dir_fd)
         # The initializer independently revalidates local storage and marker.
         dbpath = initialize_indexed_database(library, base_schema_sql)
-        os.fsync(dir_fd)
         return dbpath
     except BaseException:
         if marker_stat is not None:
