@@ -63,7 +63,7 @@ class IndexedLibraryStartupTests(unittest.TestCase):
             loaded = config_module.load_indexed_library_config(library)
             self.assertEqual(loaded, cfg)
             with self.assertRaisesRegex(RuntimeError, 'not yet available'):
-                exec(guard, {'indexed_config': loaded, 'indexed_database_path': config_module.indexed_database_path})
+                exec(guard, {'indexed_config': loaded, 'indexed_database_path': config_module.indexed_database_path, 'library_path': str(library)})
             self.assertFalse((library / 'metadata.db').exists())
 
             marker.write_text('{"mode":"invalid"}', encoding='utf-8')
