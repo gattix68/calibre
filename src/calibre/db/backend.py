@@ -1627,7 +1627,7 @@ class DB:
             return ans.fetchall()
         try:
             return next(ans)[0]
-        except StopIteration, IndexError:
+        except (StopIteration, IndexError):
             return None
 
     def last_insert_rowid(self) -> int:
@@ -2102,7 +2102,7 @@ class DB:
                         return fmt_path
                     try:
                         shutil.move(x, fmt_path)
-                    except shutil.SameFileError, OSError:
+                    except (shutil.SameFileError, OSError):
                         # some other process synced in the file since the last
                         # os.path.exists()
                         return x
