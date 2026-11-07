@@ -7,7 +7,7 @@ indexed-library.json and (eventually) metadata.db. The source ebook roots
 may be remote. This module deliberately does not open or create databases,
 scan roots, or change any ebook files.
 
-Not yet wired into Calibre's library startup.
+Configuration detection is wired into startup; activation remains blocked.
 """
 
 import json
@@ -50,3 +50,16 @@ def load_indexed_library_config(library_directory: str | os.PathLike[str]) -> di
     # Database location is fixed inside the local library directory and
     # is intentionally not configurable from this JSON document.
     return {'version': CONFIG_VERSION, 'mode': MODE, 'source_roots': roots}
+
+
+def indexed_database_path(library_directory: str | os.PathLike[str]) -> Path:
+    """Resolve a configured Indexed library's LOCAL metadata database path.
+
+    This function performs no I/O on the source roots and does not create the
+    database or its parent directory. A missing or invalid marker is an error.
+    """
+    library = Path(library_directory).expanduser().resolve()
+    config = load_indexed_library_config(library)
+    if config is None:
+        raise InvalidIndexedLibraryConfig('Not an Indexed library')
+    return library / 'metadata.db'
