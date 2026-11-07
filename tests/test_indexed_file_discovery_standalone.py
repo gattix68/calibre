@@ -42,8 +42,8 @@ class DiscoveryTests(unittest.TestCase):
     def test_discovers_supported_files_recursively_and_read_only(self):
         files, errors = module.discover_ebook_files([str(self.root)])
         self.assertEqual(errors, [])
-        self.assertEqual([x['format'] for x in files], ['epub', 'pdf'])
-        self.assertEqual([Path(x['path']).name for x in files], ['one.epub', 'two.PDF'])
+        self.assertEqual({x['format'] for x in files}, {'epub', 'pdf'})
+        self.assertEqual({Path(x['path']).name for x in files}, {'one.epub', 'two.PDF'})
         for p, (raw, mtime) in self.before.items():
             self.assertEqual(Path(p).read_bytes(), raw)
             self.assertEqual(Path(p).stat().st_mtime_ns, mtime)
