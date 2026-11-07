@@ -13,6 +13,25 @@ from calibre.db.indexed_database_recovery import inspect_indexed_database
 COMPLETION_FILENAME = 'indexed-library.complete'
 
 
+def _identity(dir_fd, filename):
+    st = os.stat(filename, dir_fd=dir_fd, follow_symlinks=False)
+    return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+
+
+def _check_final_inputs(dir_fd, library, plan, marker_identity, db_identity, payload):
+    st = os.stat(library, follow_symlinks=False)
+    if (st.st_dev, st.st_ino) != plan['destination_identity']:
+        raise RuntimeError('Indexed directory replaced during verification')
+    if _identity(dir_fd, CONFIG_FILENAME) != marker_identity:
+        raise RuntimeError('Indexed configuration changed during verification')
+    if _identity(dir_fd, 'metadata.db') != db_identity:
+        raise RuntimeError('Indexed database changed during verification')
+    fd = os.open(CONFIG_FILENAME, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+    with os.fdopen(fd, 'rb') as handle:
+        if handle.read(len(payload) + 1) != payload:
+            raise RuntimeError('Indexed configuration contents changed')
+
+
 def create_indexed_library(library_directory, source_roots, base_schema_sql):
     """Create a marker and database in a previously empty local directory.
 
@@ -50,7 +69,11 @@ def create_indexed_library(library_directory, source_roots, base_schema_sql):
         # The initializer independently revalidates local storage and marker.
         dbpath = initialize_indexed_database(library, base_schema_sql)
         # An interrupted operation cannot publish the completion sentinel.
+        marker_identity = _identity(dir_fd, CONFIG_FILENAME)
+        db_identity = _identity(dir_fd, 'metadata.db')
+        _check_final_inputs(dir_fd, library, plan, marker_identity, db_identity, payload)
         inspect_indexed_database(library)
+        _check_final_inputs(dir_fd, library, plan, marker_identity, db_identity, payload)
         if set(os.listdir(dir_fd)) != {CONFIG_FILENAME, 'metadata.db'}:
             raise RuntimeError('Unexpected files appeared during Indexed creation')
         completion_fd = os.open(
