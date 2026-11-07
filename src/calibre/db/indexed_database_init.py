@@ -7,6 +7,7 @@ Calibre base-schema SQL; no source roots are accessed or changed.
 """
 import os
 import sqlite3
+import sys
 import uuid
 from pathlib import Path
 
@@ -50,6 +51,9 @@ def initialize_indexed_database(library_directory, base_schema_sql):
     if not isinstance(base_schema_sql, str) or not base_schema_sql.strip():
         raise ValueError('Non-empty Calibre base schema SQL is required')
 
+    if sys.platform != 'linux' or not os.path.isdir('/proc/self/fd'):
+        raise RuntimeError('Descriptor-anchored Indexed initialization requires Linux procfs')
+
     # Hold a directory descriptor so exclusive creation and cleanup are
     # relative to the same directory, even if its pathname is renamed.
     # Linux-only for now; other platforms remain blocked by storage validation.
@@ -66,9 +70,15 @@ def initialize_indexed_database(library_directory, base_schema_sql):
         os.close(fd)
         try:
             verify_indexed_destination_identity(library, expected_identity)
-            # SQLite still opens by pathname: full path-race resistance will
-            # require a descriptor-anchored SQLite opening strategy.
-            with sqlite3.connect(dbpath) as db:
+            # Anchor SQLite's open to the directory descriptor, not the
+            # mutable original library pathname. Linux procfs is required.
+            anchored_dbpath = f'/proc/self/fd/{dir_fd}/metadata.db'
+            with sqlite3.connect(anchored_dbpath) as db:
+                # Refuse if the database pathname no longer refers to the
+                # file exclusively created by this initializer.
+                current = os.stat('metadata.db', dir_fd=dir_fd, follow_symlinks=False)
+                if (current.st_dev, current.st_ino) != (created_stat.st_dev, created_stat.st_ino):
+                    raise RuntimeError('Indexed database file changed during initialization')
                 db.create_function('title_sort', 1, lambda title: title)
                 db.create_function('uuid4', 0, lambda: str(uuid.uuid4()))
                 db.executescript(base_schema_sql)
