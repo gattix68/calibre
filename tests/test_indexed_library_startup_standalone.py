@@ -58,6 +58,28 @@ class IndexedLibraryStartupTests(unittest.TestCase):
                 config_module.load_indexed_library_config(library)
             self.assertFalse((library / 'metadata.db').exists())
 
+    def test_dangling_symlink_marker_blocks_managed_fallback(self):
+        with tempfile.TemporaryDirectory() as temp:
+            library = Path(temp)
+            marker = library / config_module.CONFIG_FILENAME
+            marker.symlink_to(library / 'missing-target')
+            with self.assertRaises(config_module.InvalidIndexedLibraryConfig):
+                config_module.check_indexed_library_startup(library)
+
+    def test_directory_marker_blocks_managed_fallback(self):
+        with tempfile.TemporaryDirectory() as temp:
+            library = Path(temp)
+            (library / config_module.CONFIG_FILENAME).mkdir()
+            with self.assertRaises(config_module.InvalidIndexedLibraryConfig):
+                config_module.check_indexed_library_startup(library)
+
+    def test_partial_marker_blocks_managed_fallback(self):
+        with tempfile.TemporaryDirectory() as temp:
+            library = Path(temp)
+            (library / config_module.CONFIG_FILENAME).write_bytes(b'{"version":')
+            with self.assertRaises(config_module.InvalidIndexedLibraryConfig):
+                config_module.check_indexed_library_startup(library)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
