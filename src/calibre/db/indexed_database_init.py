@@ -50,35 +50,45 @@ def initialize_indexed_database(library_directory, base_schema_sql):
     if not isinstance(base_schema_sql, str) or not base_schema_sql.strip():
         raise ValueError('Non-empty Calibre base schema SQL is required')
 
-    # Revalidate immediately before file creation; do not trust the earlier check.
-    verify_indexed_destination_identity(library, expected_identity)
-    # O_EXCL prevents replacing an existing database, including on races.
-    fd = os.open(dbpath, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
-    created_stat = os.fstat(fd)
-    os.close(fd)
+    # Hold a directory descriptor so exclusive creation and cleanup are
+    # relative to the same directory, even if its pathname is renamed.
+    # Linux-only for now; other platforms remain blocked by storage validation.
+    dir_flags = os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0) | getattr(os, 'O_NOFOLLOW', 0)
+    dir_fd = os.open(library, dir_flags)
     try:
+        opened = os.fstat(dir_fd)
+        if (opened.st_dev, opened.st_ino) != expected_identity:
+            raise RuntimeError('Indexed database directory changed during initialization')
         verify_indexed_destination_identity(library, expected_identity)
-        with sqlite3.connect(dbpath) as db:
-            db.create_function('title_sort', 1, lambda title: title)
-            db.create_function('uuid4', 0, lambda: str(uuid.uuid4()))
-            db.executescript(base_schema_sql)
-            db.executescript(INDEXED_FILES_SCHEMA)
-            if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
-                raise RuntimeError('Indexed database integrity check failed')
-            if db.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='indexed_files'"
-            ).fetchone() is None:
-                raise RuntimeError('Indexed file mapping table was not created')
-        return dbpath
-    except BaseException:
-        # No other process should open this new, unpublished library database.
-        # Remove only the database created by our exclusive open.
-        # Do not remove a different file if another process replaced ours.
+        fd = os.open('metadata.db', os.O_CREAT | os.O_EXCL | os.O_RDWR |
+                     getattr(os, 'O_NOFOLLOW', 0), 0o600, dir_fd=dir_fd)
+        created_stat = os.fstat(fd)
+        os.close(fd)
         try:
-            current = dbpath.stat(follow_symlinks=False)
-        except FileNotFoundError:
-            pass
-        else:
-            if (current.st_dev, current.st_ino) == (created_stat.st_dev, created_stat.st_ino):
-                dbpath.unlink()
-        raise
+            verify_indexed_destination_identity(library, expected_identity)
+            # SQLite still opens by pathname: full path-race resistance will
+            # require a descriptor-anchored SQLite opening strategy.
+            with sqlite3.connect(dbpath) as db:
+                db.create_function('title_sort', 1, lambda title: title)
+                db.create_function('uuid4', 0, lambda: str(uuid.uuid4()))
+                db.executescript(base_schema_sql)
+                db.executescript(INDEXED_FILES_SCHEMA)
+                if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+                    raise RuntimeError('Indexed database integrity check failed')
+                if db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='indexed_files'"
+                ).fetchone() is None:
+                    raise RuntimeError('Indexed file mapping table was not created')
+            return dbpath
+        except BaseException:
+            # Only remove our original file from the opened directory.
+            try:
+                current = os.stat('metadata.db', dir_fd=dir_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                pass
+            else:
+                if (current.st_dev, current.st_ino) == (created_stat.st_dev, created_stat.st_ino):
+                    os.unlink('metadata.db', dir_fd=dir_fd)
+            raise
+    finally:
+        os.close(dir_fd)
