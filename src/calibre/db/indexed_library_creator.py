@@ -65,7 +65,7 @@ def create_indexed_library(library_directory, source_roots, base_schema_sql):
     except BaseException:
         # Preserve the marker if a database exists, so interrupted creations
         # remain identifiable and are never mistaken for Managed libraries.
-        if marker_stat is not None and 'metadata.db' not in os.listdir(dir_fd):
+        if marker_stat is not None and set(os.listdir(dir_fd)) == {CONFIG_FILENAME}:
             try:
                 current = os.stat(CONFIG_FILENAME, dir_fd=dir_fd, follow_symlinks=False)
             except FileNotFoundError:
