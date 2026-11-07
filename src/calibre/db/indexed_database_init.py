@@ -79,7 +79,7 @@ def initialize_indexed_database(library_directory, base_schema_sql):
                 current = os.stat('metadata.db', dir_fd=dir_fd, follow_symlinks=False)
                 if (current.st_dev, current.st_ino) != (created_stat.st_dev, created_stat.st_ino):
                     raise RuntimeError('Indexed database file changed during initialization')
-                db.create_function('title_sort', 1, lambda title: title)
+                # Initial creation uses rollback journaling, never WAL sidecars.\n                # SQLite owns and removes its transient rollback journal.\n                mode = db.execute('PRAGMA journal_mode=DELETE').fetchone()[0]\n                if mode.lower() != 'delete':\n                    raise RuntimeError('Indexed initialization requires DELETE journal mode')\n                db.create_function('title_sort', 1, lambda title: title)
                 db.create_function('uuid4', 0, lambda: str(uuid.uuid4()))
                 db.executescript(base_schema_sql)
                 db.executescript(INDEXED_FILES_SCHEMA)
