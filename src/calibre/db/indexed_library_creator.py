@@ -96,7 +96,7 @@ def create_indexed_library(library_directory, source_roots, base_schema_sql):
         )
         pending_stat = os.fstat(pending_fd)
         with os.fdopen(pending_fd, 'wb') as completion:
-            completion.write(b'indexed-library-complete-v1\\n')
+            completion.write(b'indexed-library-complete-v1\n')
             completion.flush()
             os.fsync(completion.fileno())
         os.fsync(dir_fd)
