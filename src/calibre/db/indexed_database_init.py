@@ -83,7 +83,8 @@ def initialize_indexed_database(library_directory, base_schema_sql):
                 # SQLite owns and removes its transient rollback journal.
                 mode = db.execute('PRAGMA journal_mode=DELETE').fetchone()[0]
                 if mode.lower() != 'delete':
-                    raise RuntimeError('Indexed initialization requires DELETE journal mode')\n                db.create_function('title_sort', 1, lambda title: title)
+                    raise RuntimeError('Indexed initialization requires DELETE journal mode')
+                db.create_function('title_sort', 1, lambda title: title)
                 db.create_function('uuid4', 0, lambda: str(uuid.uuid4()))
                 db.executescript(base_schema_sql)
                 db.executescript(INDEXED_FILES_SCHEMA)
