@@ -9,10 +9,47 @@ import os
 import re
 import zipfile
 from datetime import date, datetime
+from html import unescape
+from html.parser import HTMLParser
 from xml.etree import ElementTree
 
 
 MAX_COMICINFO_BYTES = 2 * 1024 * 1024
+
+
+class _HTMLTextExtractor(HTMLParser):
+    BLOCK_TAGS = {'address', 'article', 'blockquote', 'br', 'div', 'h1', 'h2', 'h3', 'h4', 'li', 'p', 'section'}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag.casefold() in self.BLOCK_TAGS:
+            self.parts.append('\\n')
+
+    def handle_endtag(self, tag):
+        if tag.casefold() in self.BLOCK_TAGS:
+            self.parts.append('\\n')
+
+    def handle_data(self, data):
+        self.parts.append(data)
+
+
+def _clean_description(value):
+    """Convert HTML metadata descriptions to readable plain text."""
+    value = _plain(value)
+    if not value:
+        return ''
+    parser = _HTMLTextExtractor()
+    try:
+        parser.feed(value)
+        parser.close()
+        value = ''.join(parser.parts)
+    except Exception:
+        value = re.sub(r'<[^>]*>', ' ', value)
+    value = unescape(value)
+    return re.sub(r'\\s+', ' ', value).strip()
 
 
 def _plain(value):
@@ -71,8 +108,7 @@ def _comicinfo_metadata(path, ext):
         except ValueError:
             pass
     writers = [x.strip() for x in re.split(r'[,;]', values.get('writer', '')) if x.strip()]
-    put('authors', writers)
-    put('publisher', values.get('publisher'))
+    if writers:\n        put('authors', writers)\n    put('publisher', values.get('publisher'))
     put('comments', values.get('summary'))
     genres = [x.strip() for x in re.split(r'[,;]', values.get('genre', '')) if x.strip()]
     put('tags', genres)
@@ -108,7 +144,7 @@ def extract_metadata_worker(path):
         'series_index': _plain(mi.series_index),
         'publisher': _plain(mi.publisher),
         'publication_date': _plain(mi.pubdate),
-        'comments': _plain(getattr(mi, 'comments', '')),
+        'comments': _clean_description(getattr(mi, 'comments', '')),
         'identifiers': {str(k): str(v) for k, v in (mi.identifiers or {}).items()},
         'languages': [_plain(x) for x in (mi.languages or [])],
         'tags': [_plain(x) for x in (mi.tags or [])],
@@ -119,9 +155,16 @@ def extract_metadata_worker(path):
     # authoritative for any fields it actually supplies.
     comic_values, comic_sources = _comicinfo_metadata(path, ext) if ext in {'cbz', 'cbr'} else ({}, {})
     result.update(comic_values)
+    if ext in {'cbz', 'cbr'} and comic_sources:
+        # A release-group string parsed from the filename is not an author.
+        # Only a ComicInfo Writer field is authoritative for comic archives.
+        if 'authors' not in comic_sources:
+            result['authors'] = []
     result['metadata_sources'].update(comic_sources)
-    for field in result:
-        if field not in {'path', 'format', 'metadata_sources'} and field not in comic_sources:
+    for field, value in result.items():
+        if field in {'path', 'format', 'metadata_sources'} or field in comic_sources:
+            continue
+        if value not in ('', None, [], {}):
             result['metadata_sources'].setdefault(field, 'Calibre file reader or filename fallback')
     return result
 
