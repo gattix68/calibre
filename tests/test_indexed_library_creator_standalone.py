@@ -32,6 +32,7 @@ config = load('calibre.db.indexed_library_config', 'indexed_library_config.py')
 storage = load('calibre.db.indexed_storage_validation', 'indexed_storage_validation.py')
 preflight = load('calibre.db.indexed_library_creation', 'indexed_library_creation.py')
 init = load('calibre.db.indexed_database_init', 'indexed_database_init.py')
+recovery = load('calibre.db.indexed_database_recovery', 'indexed_database_recovery.py')
 creator = load('calibre.db.indexed_library_creator', 'indexed_library_creator.py')
 
 
@@ -51,6 +52,8 @@ class CreatorTests(unittest.TestCase):
         with sqlite3.connect(dbpath) as db:
             self.assertIsNotNone(db.execute(
                 "SELECT 1 FROM sqlite_master WHERE name='indexed_files'").fetchone())
+        self.assertEqual((self.library / creator.COMPLETION_FILENAME).read_bytes(),
+                         b'indexed-library-complete-v1\n')
         self.assertFalse(self.offline.exists())
 
     def test_failed_schema_rolls_back_marker_and_database(self):
@@ -81,6 +84,17 @@ class CreatorTests(unittest.TestCase):
                 creator.create_indexed_library(self.library, [str(self.offline)], SCHEMA)
         self.assertEqual(marker.read_text(), 'other-process')
         self.assertFalse((self.library / 'metadata.db').exists())
+
+
+    def test_failed_final_inspection_preserves_incomplete_library(self):
+        with patch.object(creator, 'inspect_indexed_database',
+                          side_effect=recovery.IncompleteIndexedDatabase('simulated')):
+            with self.assertRaises(recovery.IncompleteIndexedDatabase):
+                creator.create_indexed_library(self.library, [str(self.offline)], SCHEMA)
+        self.assertTrue((self.library / config.CONFIG_FILENAME).exists())
+        self.assertTrue((self.library / 'metadata.db').exists())
+        self.assertFalse((self.library / creator.COMPLETION_FILENAME).exists())
+        self.assertFalse(self.offline.exists())
 
 
 if __name__ == '__main__':
