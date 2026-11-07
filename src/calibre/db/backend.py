@@ -33,7 +33,7 @@ from calibre.db.constants import (
     TrashEntry,
 )
 from calibre.db.errors import NoSuchFormat
-from calibre.db.indexed_library_config import load_indexed_library_config
+from calibre.db.indexed_library_config import indexed_database_path, load_indexed_library_config
 from calibre.db.schema_upgrades import SchemaUpgrade
 from calibre.db.tables import (
     AuthorsTable,
@@ -723,6 +723,11 @@ class DB:
         # startup to move or rename external ebooks.
         indexed_config = load_indexed_library_config(library_path)
         if indexed_config is not None:
+            # Resolve the local database destination without creating it.
+            # This is intentionally before the fail-closed activation guard.
+            indexed_dbpath = indexed_database_path(library_path)
+            if not indexed_dbpath.is_absolute():
+                raise RuntimeError('Indexed database path must be absolute')
             raise RuntimeError(
                 'Indexed Library Mode is not yet available: external file '
                 'safety protections must be completed before opening this library'
