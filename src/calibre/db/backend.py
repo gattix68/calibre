@@ -717,6 +717,13 @@ class DB:
             library_path = library_path.decode(filesystem_encoding)
         self.field_metadata = FieldMetadata()
 
+        # Detect the explicit Indexed Library marker before startup validation.
+        # The startup guard below still prevents opening Indexed Mode until
+        # database schema and every file operation are fully integrated.
+        from calibre.db.indexed_library_config import load_indexed_library_config
+        indexed_config = load_indexed_library_config(library_path)
+        self.is_indexed_library = indexed_config is not None
+
         # Fail closed before any database initialization or library file I/O.
         check_indexed_library_startup(library_path)
 
