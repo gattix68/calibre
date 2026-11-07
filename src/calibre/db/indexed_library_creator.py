@@ -2,6 +2,7 @@
 # License: GPLv3
 """Explicit Linux-only Indexed Library creation; not connected to Calibre GUI."""
 import json
+import fcntl
 import os
 from pathlib import Path
 
@@ -42,6 +43,13 @@ def create_indexed_library(library_directory, source_roots, base_schema_sql):
     plan = validate_indexed_creation(library_directory, source_roots)
     library = Path(plan['library_directory'])
     dir_fd = os.open(library, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    # Linux advisory lock on the directory itself: no lockfile to leave behind.
+    # Cooperating creators must use this lock; it does not block other writers.
+    try:
+        fcntl.flock(dir_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BaseException:
+        os.close(dir_fd)
+        raise
     marker_stat = None
     completion_stat = None
     try:
