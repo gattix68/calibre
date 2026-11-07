@@ -12,6 +12,7 @@ from calibre.db.indexed_database_init import initialize_indexed_database
 from calibre.db.indexed_database_recovery import inspect_indexed_database
 
 COMPLETION_FILENAME = 'indexed-library.complete'
+PENDING_COMPLETION_FILENAME = 'indexed-library.complete.pending'
 
 
 def _identity(dir_fd, filename):
@@ -52,6 +53,7 @@ def create_indexed_library(library_directory, source_roots, base_schema_sql):
         raise
     marker_stat = None
     completion_stat = None
+    pending_stat = None
     try:
         before = os.fstat(dir_fd)
         current = os.stat(library, follow_symlinks=False)
@@ -85,22 +87,46 @@ def create_indexed_library(library_directory, source_roots, base_schema_sql):
         _check_final_inputs(dir_fd, library, plan, marker_identity, db_identity, payload)
         if set(os.listdir(dir_fd)) != {CONFIG_FILENAME, 'metadata.db'}:
             raise RuntimeError('Unexpected files appeared during Indexed creation')
-        completion_fd = os.open(
-            COMPLETION_FILENAME, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW,
+        # Prepare a fully written, fsynced marker under a non-final name.
+        # The final name is published only after all input checks succeed.
+        pending_fd = os.open(
+            PENDING_COMPLETION_FILENAME,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW,
             0o600, dir_fd=dir_fd,
         )
-        completion_stat = os.fstat(completion_fd)
-        with os.fdopen(completion_fd, 'wb') as completion:
-            completion.write(b'indexed-library-complete-v1\n')
+        pending_stat = os.fstat(pending_fd)
+        with os.fdopen(pending_fd, 'wb') as completion:
+            completion.write(b'indexed-library-complete-v1\\n')
             completion.flush()
             os.fsync(completion.fileno())
         os.fsync(dir_fd)
-        # Detect changes made while the completion marker was being written.
+        _check_final_inputs(dir_fd, library, plan, marker_identity, db_identity, payload)
+        if set(os.listdir(dir_fd)) != {
+            CONFIG_FILENAME, 'metadata.db', PENDING_COMPLETION_FILENAME
+        }:
+            raise RuntimeError('Indexed directory changed before completion publication')
+        # Hard-link publication is atomic and refuses an existing final name.
+        # A crash before this operation leaves only a rejected pending marker.
+        os.link(PENDING_COMPLETION_FILENAME, COMPLETION_FILENAME,
+                src_dir_fd=dir_fd, dst_dir_fd=dir_fd, follow_symlinks=False)
+        completion_stat = pending_stat
+        os.fsync(dir_fd)
+        os.unlink(PENDING_COMPLETION_FILENAME, dir_fd=dir_fd)
+        os.fsync(dir_fd)
         _check_final_inputs(dir_fd, library, plan, marker_identity, db_identity, payload)
         if set(os.listdir(dir_fd)) != {CONFIG_FILENAME, 'metadata.db', COMPLETION_FILENAME}:
             raise RuntimeError('Indexed directory changed during completion publication')
         return dbpath
     except BaseException:
+        if pending_stat is not None:
+            try:
+                current_pending = os.stat(PENDING_COMPLETION_FILENAME, dir_fd=dir_fd,
+                                          follow_symlinks=False)
+                if (current_pending.st_dev, current_pending.st_ino) == (pending_stat.st_dev, pending_stat.st_ino):
+                    os.unlink(PENDING_COMPLETION_FILENAME, dir_fd=dir_fd)
+                    os.fsync(dir_fd)
+            except FileNotFoundError:
+                pass
         # If publication fails, remove only the completion file created by
         # this operation. Leave configuration/database for recovery review.
         if completion_stat is not None:
