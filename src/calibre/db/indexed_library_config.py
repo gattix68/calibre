@@ -30,8 +30,14 @@ def load_indexed_library_config(library_directory: str | os.PathLike[str]) -> di
     allowing existing managed-library startup to remain the default.
     """
     config_path = Path(library_directory) / CONFIG_FILENAME
-    if not config_path.is_file():
+    # Only genuine absence is Managed Mode. Broken or nonregular markers
+    # may indicate interrupted creation and must fail closed.
+    if not os.path.lexists(config_path):
         return None
+    if config_path.is_symlink() or not config_path.is_file():
+        raise InvalidIndexedLibraryConfig(
+            'Indexed library marker exists but is not a regular file'
+        )
     try:
         config = json.loads(config_path.read_text(encoding='utf-8'))
     except (OSError, UnicodeError, json.JSONDecodeError) as err:
