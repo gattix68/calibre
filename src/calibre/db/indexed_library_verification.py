@@ -67,7 +67,10 @@ def _verify_unlocked(library):
     with completion.open('rb') as handle:
         if handle.read(len(COMPLETION_SIGNATURE) + 1) != COMPLETION_SIGNATURE:
             raise IncompleteIndexedDatabase('Indexed completion signature invalid')
+    # Check SQLite sidecars and database structure before the generic
+    # directory-entry check, so interrupted SQLite state gets a precise reason.
+    dbpath = inspect_indexed_database(library)
     expected = {CONFIG_FILENAME, COMPLETION_FILENAME, 'metadata.db'}
     if set(os.listdir(library)) != expected:
         raise IncompleteIndexedDatabase('Unexpected files in Indexed library directory')
-    return inspect_indexed_database(library)
+    return dbpath
