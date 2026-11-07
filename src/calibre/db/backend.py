@@ -793,6 +793,55 @@ class DB:
             set_global_state(self)
         self.initialize_notes()
 
+    # Experimental Indexed Library storage primitives. These deliberately do not
+    # populate Calibre's managed 'data' table or expose Indexed Mode to the GUI.
+    # The mode cannot be activated until all file mutation paths are protected.
+    def _require_indexed_storage(self) -> None:
+        if self.prefs.get('library_storage_mode', 'managed') != 'indexed':
+            raise RuntimeError('External file registration requires an Indexed library')
+        raise NotImplementedError('Indexed library activation is not yet safe')
+
+    def register_indexed_format(self, book_id: int, fmt: str, file_path: str) -> None:
+        """Record an external file location without copying or modifying it.
+
+        Reserved for the Indexed Mode integration milestone; currently disabled.
+        """
+        self._require_indexed_storage()
+        full_path = os.path.realpath(os.path.abspath(file_path))
+        if not os.path.isfile(full_path):
+            raise FileNotFoundError(full_path)
+        fmt = fmt.strip().lstrip('.').upper()
+        if not fmt or os.path.splitext(full_path)[1].lower() != '.' + fmt.lower():
+            raise ValueError('Format must match the external file extension')
+        file_stat = os.stat(full_path)
+        with self.conn:
+            self.conn.execute(
+                'INSERT INTO indexed_files(book_id, format, file_path, file_size, modified_time_ns) '
+                'VALUES (?, ?, ?, ?, ?) '
+                'ON CONFLICT(book_id, format) DO UPDATE SET '
+                'file_path=excluded.file_path, file_size=excluded.file_size, '
+                'modified_time_ns=excluded.modified_time_ns',
+                (book_id, fmt, full_path, file_stat.st_size, file_stat.st_mtime_ns),
+            )
+
+    def resolve_indexed_format(self, book_id: int, fmt: str) -> str | None:
+        """Return the recorded external path without renaming or accessing it."""
+        self._require_indexed_storage()
+        row = next(self.execute(
+            'SELECT file_path FROM indexed_files WHERE book_id=? AND format=?',
+            (book_id, fmt.strip().lstrip('.').upper()),
+        ), None)
+        return row[0] if row else None
+
+    def remove_indexed_format(self, book_id: int, fmt: str) -> None:
+        """Remove only the external path mapping, never the referenced file."""
+        self._require_indexed_storage()
+        with self.conn:
+            self.conn.execute(
+                'DELETE FROM indexed_files WHERE book_id=? AND format=?',
+                (book_id, fmt.strip().lstrip('.').upper()),
+            )
+
     @property
     def max_number_of_variables(self) -> int:
         return self.conn.limit(apsw.SQLITE_LIMIT_VARIABLE_NUMBER)
