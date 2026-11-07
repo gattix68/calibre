@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Standalone read-only completion verification regression tests."""
 import importlib.util
+import fcntl
+import os
 import sys
 import tempfile
 import types
@@ -52,6 +54,20 @@ class CompletionTests(unittest.TestCase):
         self.assertEqual(verification.verify_indexed_library_complete(self.library),
                          self.library / 'metadata.db')
         self.assertFalse(self.offline.exists())
+
+    def test_active_creator_lock_rejects_even_valid_completion(self):
+        fd = os.open(self.library, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.assert_rejected()
+            self.assertEqual(
+                (self.library / verification.COMPLETION_FILENAME).read_bytes(),
+                verification.COMPLETION_SIGNATURE,
+            )
+        finally:
+            os.close(fd)
+        self.assertEqual(verification.verify_indexed_library_complete(self.library),
+                         self.library / 'metadata.db')
 
     def test_missing_completion_rejected(self):
         (self.library / verification.COMPLETION_FILENAME).unlink()
