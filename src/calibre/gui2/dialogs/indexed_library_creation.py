@@ -103,8 +103,8 @@ class IndexedLibraryCreationDialog(QDialog):
             error_dialog(self, _('Indexed Library validation failed'), str(err), show=True)
             return
         message = _(
-            'Create a NEW Indexed Library database in this empty local directory?\\n\\n'
-            'Database: %s\\nEbook source: %s\\n\\n'
+            'Create a NEW Indexed Library database in this empty local directory?\n\n'
+            'Database: %s\nEbook source: %s\n\n'
             'No ebooks will be scanned, copied, moved, renamed, or deleted. '
             'The new Indexed Library will NOT be opened automatically.'
         ) % (plan['library_directory'], plan['source_roots'][0])
