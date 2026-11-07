@@ -26,11 +26,11 @@ class _HTMLTextExtractor(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         if tag.casefold() in self.BLOCK_TAGS:
-            self.parts.append('\\n')
+            self.parts.append('\n')
 
     def handle_endtag(self, tag):
         if tag.casefold() in self.BLOCK_TAGS:
-            self.parts.append('\\n')
+            self.parts.append('\n')
 
     def handle_data(self, data):
         self.parts.append(data)
@@ -49,7 +49,7 @@ def _clean_description(value):
     except Exception:
         value = re.sub(r'<[^>]*>', ' ', value)
     value = unescape(value)
-    return re.sub(r'\\s+', ' ', value).strip()
+    return re.sub(r'\s+', ' ', value).strip()
 
 
 def _plain(value):
