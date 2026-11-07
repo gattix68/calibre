@@ -102,6 +102,29 @@ class CreatorTests(unittest.TestCase):
         self.assertFalse((self.library / creator.COMPLETION_FILENAME).exists())
         self.assertFalse(self.offline.exists())
 
+    def test_mutation_during_completion_publication_retracts_marker(self):
+        original = creator._check_final_inputs
+        calls = 0
+
+        def mutate_on_final_check(*args):
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                db = self.library / 'metadata.db'
+                replacement = self.library / 'other-database'
+                replacement.write_bytes(db.read_bytes())
+                replacement.replace(db)
+            return original(*args)
+
+        with patch.object(creator, '_check_final_inputs', side_effect=mutate_on_final_check):
+            with self.assertRaisesRegex(RuntimeError, 'database changed'):
+                creator.create_indexed_library(self.library, [str(self.offline)], SCHEMA)
+        self.assertEqual(calls, 3)
+        self.assertFalse((self.library / creator.COMPLETION_FILENAME).exists())
+        self.assertTrue((self.library / config.CONFIG_FILENAME).exists())
+        self.assertTrue((self.library / 'metadata.db').exists())
+        self.assertFalse(self.offline.exists())
+
     def test_database_replacement_during_inspection_rejected(self):
         original = creator.inspect_indexed_database
 
