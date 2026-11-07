@@ -2442,6 +2442,13 @@ class DB:
         return size, fname
 
     def update_path(self, book_id: int, title: str, author: str, path_field: Field, formats_field: FormatsField) -> None:
+        # Indexed libraries deliberately decouple metadata from filesystem
+        # organization. A title/author edit must never rename a source file or
+        # move its containing directory. The indexed_files mapping remains the
+        # authoritative location for every format.
+        if getattr(self, 'is_indexed_library', False):
+            return
+
         current_path = cast('str', path_field.for_book(book_id, default_value=''))
         path = self.construct_path_name(book_id, title, author)
         formats = cast('tuple[str, ...]', formats_field.for_book(book_id, default_value=()))
