@@ -85,10 +85,12 @@ class IndexedLibraryMetadataDialog(QDialog):
                 _('Series index: %s') % (mi.get('series_index') or _('—')),
                 _('Publisher: %s') % (mi.get('publisher') or _('—')),
                 _('Publication date: %s') % (mi.get('publication_date') or _('—')),
+                _('Summary: %s') % (mi.get('comments') or _('—')),
                 _('Identifiers: %s') % (', '.join(f'{k}: {v}' for k, v in mi.get('identifiers', {}).items()) or _('—')),
                 _('Languages: %s') % (', '.join(mi.get('languages') or []) or _('—')),
                 _('Tags: %s') % (', '.join(mi.get('tags') or []) or _('—')),
                 _('Cover available: %s') % (_('Yes') if mi.get('has_cover') else _('No')),
+                _('Metadata sources: %s') % ', '.join('%s=%s' % (k, v) for k, v in mi.get('metadata_sources', {}).items()),
             ))
 
         lines.extend(('', _('Discovery warnings/errors: %d') % len(scan_errors)))
