@@ -11,6 +11,10 @@ from qt.core import (
 )
 
 from calibre.db.indexed_library_creation import validate_indexed_creation
+from calibre.db.indexed_library_creator import create_indexed_library
+from calibre.db.indexed_library_verification import verify_indexed_library_complete
+from calibre.gui2 import error_dialog, info_dialog, question_dialog
+from calibre.utils.resources import get_path as resource_path
 from calibre.utils.localization import _
 
 
@@ -52,6 +56,7 @@ class IndexedLibraryCreationDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=self)
         self.create_button = buttons.addButton(_('Create Indexed Library'), QDialogButtonBox.ButtonRole.AcceptRole)
         self.create_button.setEnabled(False)
+        self.create_button.clicked.connect(self.create_library)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         self.validate_paths()
@@ -80,9 +85,45 @@ class IndexedLibraryCreationDialog(QDialog):
         except (OSError, ValueError, RuntimeError) as err:
             self.status.setText(_('Validation failed: %s') % str(err))
         else:
+            self.create_button.setEnabled(True)
             self.status.setText(_(
                 'Paths passed preliminary checks: local database directory is '
                 'empty and separate from the ebook source. '
                 'Source availability was not checked. '
-                'Creation remains disabled pending runtime safety guards.'
+                'Creation requires explicit confirmation and will not open the library.'
             ))
+
+    def create_library(self):
+        database = self.database_path.text().strip()
+        source = self.source_path.text().strip()
+        try:
+            plan = validate_indexed_creation(database, [source])
+        except (OSError, ValueError, RuntimeError) as err:
+            self.validate_paths()
+            error_dialog(self, _('Indexed Library validation failed'), str(err), show=True)
+            return
+        message = _(
+            'Create a NEW Indexed Library database in this empty local directory?\\n\\n'
+            'Database: %s\\nEbook source: %s\\n\\n'
+            'No ebooks will be scanned, copied, moved, renamed, or deleted. '
+            'The new Indexed Library will NOT be opened automatically.'
+        ) % (plan['library_directory'], plan['source_roots'][0])
+        if not question_dialog(self, _('Confirm Indexed Library creation'), message):
+            return
+        self.create_button.setEnabled(False)
+        try:
+            # The creator independently revalidates the destination under a
+            # directory lock. Never treat the GUI preflight as authorization.
+            schema = resource_path('metadata_sqlite.sql', data=True).decode('utf-8')
+            create_indexed_library(database, [source], schema)
+            verify_indexed_library_complete(database)
+        except Exception as err:
+            self.status.setText(_('Creation failed; inspect the destination before retrying.'))
+            error_dialog(self, _('Indexed Library creation failed'), str(err), show=True)
+            return
+        self.status.setText(_('Indexed Library created and verified; opening remains disabled.'))
+        info_dialog(self, _('Indexed Library created'), _(
+            'The local Indexed Library database was created and verified. '
+            'Your ebook source was not scanned or modified. '
+            'Opening Indexed Libraries remains disabled until runtime safeguards are ready.'
+        ), show=True)
