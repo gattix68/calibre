@@ -104,12 +104,14 @@ class PublicationBoundaryTests(unittest.TestCase):
             self.assertTrue((library / 'metadata.db').is_file())
             pending = library / 'indexed-library.complete.pending'
             final = library / 'indexed-library.complete'
-            self.assertEqual(pending.read_bytes(), b'indexed-library-complete-v1\n')
+            self.assertEqual(pending.exists(), phase != 'cleanup')
+            if pending.exists():
+                self.assertEqual(pending.read_bytes(), b'indexed-library-complete-v1\n')
             self.assertEqual(final.exists(), phase in ('after', 'cleanup'))
             if phase == 'after':
                 self.assertEqual(final.read_bytes(), pending.read_bytes())
             if phase == 'cleanup':
-                self.assertEqual(final.read_bytes(), b'indexed-library-complete-v1\\n')
+                self.assertEqual(final.read_bytes(), b'indexed-library-complete-v1\n')
             verifier = subprocess.run(
                 [sys.executable, '-c', VERIFY, str(ROOT), str(library)],
                 capture_output=True, text=True, timeout=30,
