@@ -73,5 +73,40 @@ class IndexedDatabaseInitializerTests(unittest.TestCase):
             self.assertFalse(dbpath.exists())
 
 
+    def test_existing_files_and_invalid_config_are_preserved(self):
+        with tempfile.TemporaryDirectory() as temp:
+            library, offline = self.make_library(temp)
+            sentinel = library / 'existing-user-file.txt'
+            sentinel.write_text('must remain unchanged', encoding='utf-8')
+            with self.assertRaises(FileExistsError):
+                initializer.initialize_indexed_database(library, SCHEMA)
+            self.assertEqual(sentinel.read_text(encoding='utf-8'), 'must remain unchanged')
+            self.assertFalse((library / 'metadata.db').exists())
+            sentinel.unlink()
+
+            marker = library / config.CONFIG_FILENAME
+            marker.write_text('not-json', encoding='utf-8')
+            with self.assertRaises(config.InvalidIndexedLibraryConfig):
+                initializer.initialize_indexed_database(library, SCHEMA)
+            self.assertFalse((library / 'metadata.db').exists())
+            self.assertFalse(offline.exists())
+
+    def test_missing_directory_and_symlink_marker(self):
+        with tempfile.TemporaryDirectory() as temp:
+            missing = Path(temp) / 'missing'
+            with self.assertRaises(FileNotFoundError):
+                initializer.initialize_indexed_database(missing, SCHEMA)
+            library, offline = self.make_library(temp)
+            marker = library / config.CONFIG_FILENAME
+            target = Path(temp) / 'external-config.json'
+            target.write_text(marker.read_text(encoding='utf-8'), encoding='utf-8')
+            marker.unlink()
+            marker.symlink_to(target)
+            with self.assertRaises(ValueError):
+                initializer.initialize_indexed_database(library, SCHEMA)
+            self.assertFalse((library / 'metadata.db').exists())
+            self.assertFalse(offline.exists())
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
