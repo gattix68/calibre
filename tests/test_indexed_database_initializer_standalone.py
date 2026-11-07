@@ -217,14 +217,11 @@ class IndexedDatabaseInitializerTests(unittest.TestCase):
                 return original_connect(path, *args, **kwargs)
 
             with patch.object(initializer.sqlite3, 'connect', side_effect=rename_then_connect):
-                result = initializer.initialize_indexed_database(library, SCHEMA)
+                with self.assertRaisesRegex(RuntimeError, 'directory changed'):
+                    initializer.initialize_indexed_database(library, SCHEMA)
             self.assertTrue(observed[0].startswith('/proc/self/fd/'))
-            self.assertEqual(result, library / 'metadata.db')
             self.assertEqual((library / 'metadata.db').read_bytes(), b'unrelated-file')
-            with original_connect(renamed / 'metadata.db') as db:
-                self.assertIsNotNone(db.execute(
-                    "SELECT 1 FROM sqlite_master WHERE name='indexed_files'"
-                ).fetchone())
+            self.assertFalse((renamed / 'metadata.db').exists())
             self.assertFalse(offline.exists())
 
 
