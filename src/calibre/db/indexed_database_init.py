@@ -16,6 +16,14 @@ from calibre.db.indexed_library_config import (
 )
 
 
+def verify_indexed_destination_identity(library, expected_identity):
+    """Recheck mount classification and directory identity before disk I/O."""
+    require_local_indexed_storage(library)
+    actual = os.stat(library, follow_symlinks=False)
+    if (actual.st_dev, actual.st_ino) != expected_identity:
+        raise RuntimeError('Indexed database directory changed during initialization')
+
+
 def initialize_indexed_database(library_directory, base_schema_sql):
     """Create a fresh local metadata.db; never overwrite an existing database.
 
@@ -28,6 +36,8 @@ def initialize_indexed_database(library_directory, base_schema_sql):
     validate_indexed_storage_separation(library_directory)
     # Check the actual destination mount before creating any database file.
     require_local_indexed_storage(library)
+    initial_stat = os.stat(library, follow_symlinks=False)
+    expected_identity = (initial_stat.st_dev, initial_stat.st_ino)
     dbpath = indexed_database_path(library)
     # A new Indexed library must have its own otherwise-empty directory.
     # Refuse to initialize over a Managed library or unrelated user files.
@@ -40,11 +50,14 @@ def initialize_indexed_database(library_directory, base_schema_sql):
     if not isinstance(base_schema_sql, str) or not base_schema_sql.strip():
         raise ValueError('Non-empty Calibre base schema SQL is required')
 
+    # Revalidate immediately before file creation; do not trust the earlier check.
+    verify_indexed_destination_identity(library, expected_identity)
     # O_EXCL prevents replacing an existing database, including on races.
     fd = os.open(dbpath, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
     created_stat = os.fstat(fd)
     os.close(fd)
     try:
+        verify_indexed_destination_identity(library, expected_identity)
         with sqlite3.connect(dbpath) as db:
             db.create_function('title_sort', 1, lambda title: title)
             db.create_function('uuid4', 0, lambda: str(uuid.uuid4()))
