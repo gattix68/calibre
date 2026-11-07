@@ -86,6 +86,22 @@ class CreatorTests(unittest.TestCase):
         self.assertFalse((self.library / 'metadata.db').exists())
 
 
+    def test_failed_initializer_with_orphan_sidecar_keeps_indexed_marker(self):
+        sidecar = self.library / 'metadata.db-journal'
+
+        def interrupted_initializer(*args):
+            sidecar.write_bytes(b'preserve-interrupted-journal')
+            raise RuntimeError('simulated interrupted SQLite initialization')
+
+        with patch.object(creator, 'initialize_indexed_database',
+                          side_effect=interrupted_initializer):
+            with self.assertRaises(RuntimeError):
+                creator.create_indexed_library(self.library, [str(self.offline)], SCHEMA)
+        self.assertTrue((self.library / config.CONFIG_FILENAME).is_file())
+        self.assertEqual(sidecar.read_bytes(), b'preserve-interrupted-journal')
+        self.assertFalse((self.library / creator.COMPLETION_FILENAME).exists())
+        self.assertFalse(self.offline.exists())
+
     def test_failed_final_inspection_preserves_incomplete_library(self):
         with patch.object(creator, 'inspect_indexed_database',
                           side_effect=recovery.IncompleteIndexedDatabase('simulated')):
