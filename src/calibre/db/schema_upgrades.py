@@ -26,6 +26,24 @@ CREATE TABLE book_storage ( id INTEGER PRIMARY KEY,
 '''
 
 
+INDEXED_FILES_SCHEMA = '''
+CREATE TABLE indexed_files (
+    book_id INTEGER NOT NULL,
+    format TEXT NOT NULL COLLATE NOCASE,
+    file_path TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    modified_time_ns INTEGER NOT NULL,
+    PRIMARY KEY (book_id, format),
+    FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
+);
+CREATE TRIGGER indexed_files_book_deleted
+    AFTER DELETE ON books
+    BEGIN
+        DELETE FROM indexed_files WHERE book_id = OLD.id;
+    END;
+'''
+
+
 class SchemaUpgrade:
     def __init__(self, db: DB, library_path: str, field_metadata: FieldMetadata) -> None:
         db.execute('BEGIN EXCLUSIVE TRANSACTION')
@@ -917,3 +935,8 @@ CREATE TRIGGER fkc_annot_update
         "Create the book_storage table used for per book localStorage in the viewers"
         assert self.db is not None
         self.db.execute(BOOK_STORAGE_SCHEMA)
+
+    def upgrade_version_28(self) -> None:
+        """Create external file mapping table (no filesystem operations)."""
+        assert self.db is not None
+        self.db.execute(INDEXED_FILES_SCHEMA)
