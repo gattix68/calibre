@@ -181,5 +181,26 @@ class IndexedDatabaseInitializerTests(unittest.TestCase):
             self.assertFalse(offline.exists())
 
 
+    def test_cleanup_uses_original_directory_after_rename(self):
+        with tempfile.TemporaryDirectory() as temp:
+            library, offline = self.make_library(temp)
+            renamed = Path(temp) / 'renamed-local'
+            replacement = library
+            original_connect = initializer.sqlite3.connect
+
+            def rename_and_fail(*args, **kwargs):
+                library.rename(renamed)
+                replacement.mkdir()
+                (replacement / 'metadata.db').write_bytes(b'unrelated-file')
+                raise sqlite3.OperationalError('simulated database open failure')
+
+            with patch.object(initializer.sqlite3, 'connect', side_effect=rename_and_fail):
+                with self.assertRaisesRegex(sqlite3.OperationalError, 'simulated'):
+                    initializer.initialize_indexed_database(library, SCHEMA)
+            self.assertFalse((renamed / 'metadata.db').exists())
+            self.assertEqual((replacement / 'metadata.db').read_bytes(), b'unrelated-file')
+            self.assertFalse(offline.exists())
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
