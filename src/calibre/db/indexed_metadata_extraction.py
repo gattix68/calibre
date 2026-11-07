@@ -108,7 +108,9 @@ def _comicinfo_metadata(path, ext):
         except ValueError:
             pass
     writers = [x.strip() for x in re.split(r'[,;]', values.get('writer', '')) if x.strip()]
-    if writers:\n        put('authors', writers)\n    put('publisher', values.get('publisher'))
+    if writers:
+        put('authors', writers)
+    put('publisher', values.get('publisher'))
     put('comments', values.get('summary'))
     genres = [x.strip() for x in re.split(r'[,;]', values.get('genre', '')) if x.strip()]
     put('tags', genres)
