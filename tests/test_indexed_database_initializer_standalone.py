@@ -7,6 +7,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +30,7 @@ for name in ('calibre', 'calibre.db'):
         package.__path__ = []
         sys.modules[name] = package
 config = load_module('calibre.db.indexed_library_config', DBDIR / 'indexed_library_config.py')
+storage = load_module('calibre.db.indexed_storage_validation', DBDIR / 'indexed_storage_validation.py')
 initializer = load_module('calibre.db.indexed_database_init', DBDIR / 'indexed_database_init.py')
 
 
@@ -127,6 +129,20 @@ class IndexedDatabaseInitializerTests(unittest.TestCase):
             with self.assertRaises(config.InvalidIndexedLibraryConfig):
                 initializer.initialize_indexed_database(alias, SCHEMA)
             self.assertFalse((library / 'metadata.db').exists())
+
+
+    def test_network_or_unknown_storage_cannot_create_database(self):
+        with tempfile.TemporaryDirectory() as temp:
+            library, offline = self.make_library(temp)
+            dbpath = library / 'metadata.db'
+            for reason in ('cifs network mount', 'unknown filesystem'):
+                with self.subTest(reason=reason):
+                    with patch.object(initializer, 'require_local_indexed_storage',
+                                      side_effect=storage.UnverifiedIndexedStorage(reason)):
+                        with self.assertRaises(storage.UnverifiedIndexedStorage):
+                            initializer.initialize_indexed_database(library, SCHEMA)
+                    self.assertFalse(dbpath.exists())
+            self.assertFalse(offline.exists())
 
 
 if __name__ == '__main__':
