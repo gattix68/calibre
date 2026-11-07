@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Isolated controlled creation tests; no Calibre runtime or NAS access."""
 import importlib.util
+import fcntl
+import os
 import json
 import sqlite3
 import sys
@@ -43,6 +45,19 @@ class CreatorTests(unittest.TestCase):
         self.library = Path(self.temp.name) / 'local'
         self.library.mkdir()
         self.offline = Path(self.temp.name) / 'offline-nas'
+
+    def test_concurrent_creator_directory_lock_fails_closed(self):
+        fd = os.open(self.library, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with self.assertRaises(BlockingIOError):
+                creator.create_indexed_library(self.library, [str(self.offline)], SCHEMA)
+            self.assertEqual(list(self.library.iterdir()), [])
+            self.assertFalse(self.offline.exists())
+        finally:
+            os.close(fd)
+        creator.create_indexed_library(self.library, [str(self.offline)], SCHEMA)
+        self.assertTrue((self.library / creator.COMPLETION_FILENAME).exists())
 
     def test_create_without_touching_offline_source(self):
         dbpath = creator.create_indexed_library(self.library, [str(self.offline)], SCHEMA)
