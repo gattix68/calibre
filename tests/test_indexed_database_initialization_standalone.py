@@ -45,8 +45,9 @@ class IndexedDatabaseInitializationTests(unittest.TestCase):
                 db.create_function('title_sort', 1, lambda title: title)
                 db.create_function('uuid4', 0, lambda: 'test-uuid')
                 db.executescript(SCHEMA.read_text(encoding='utf-8'))
+                db.executescript(config_module.INDEXED_FILES_SCHEMA)
                 self.assertEqual(
-                    db.execute('PRAGMA user_version').fetchone()[0], 29
+                    db.execute('PRAGMA user_version').fetchone()[0], 28
                 )
                 self.assertIsNotNone(db.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name='indexed_files'"
