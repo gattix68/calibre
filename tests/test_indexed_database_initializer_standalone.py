@@ -108,5 +108,26 @@ class IndexedDatabaseInitializerTests(unittest.TestCase):
             self.assertFalse(offline.exists())
 
 
+    def test_reject_source_overlap_and_symlinked_workspace(self):
+        with tempfile.TemporaryDirectory() as temp:
+            library, offline = self.make_library(temp)
+            marker = library / config.CONFIG_FILENAME
+            for root in (str(library), str(library / 'ebooks'), str(Path(temp))):
+                marker.write_text(json.dumps({
+                    'version': 1, 'mode': 'indexed', 'source_roots': [root]
+                }), encoding='utf-8')
+                with self.assertRaises(config.InvalidIndexedLibraryConfig):
+                    initializer.initialize_indexed_database(library, SCHEMA)
+                self.assertFalse((library / 'metadata.db').exists())
+            marker.write_text(json.dumps({
+                'version': 1, 'mode': 'indexed', 'source_roots': [str(offline)]
+            }), encoding='utf-8')
+            alias = Path(temp) / 'alias'
+            alias.symlink_to(library, target_is_directory=True)
+            with self.assertRaises(config.InvalidIndexedLibraryConfig):
+                initializer.initialize_indexed_database(alias, SCHEMA)
+            self.assertFalse((library / 'metadata.db').exists())
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
