@@ -2178,6 +2178,8 @@ class DB:
         return fpath and os.access(fpath, os.R_OK | os.W_OK)
 
     def rename_format_file(self, book_id: int, src_fname: str, src_fmt: str, dest_fname: str, dest_fmt: str, path: str) -> int:
+        if getattr(self, 'is_indexed_library', False):
+            raise PermissionError('Renaming format files is not supported in Indexed Library mode; source filenames are preserved')
         src_path = self.format_abspath(book_id, src_fmt, src_fname, path)
         if src_path is None:
             raise NoSuchFormat(f'Record {book_id} has no fmt: {src_fmt}')
@@ -2188,6 +2190,8 @@ class DB:
         return os.path.getsize(dest_path)
 
     def remove_formats(self, remove_map: Mapping[int, Iterable[tuple[str, str, str]]], metadata_map: Mapping[int, JSONDict]) -> dict[int, set[str]]:
+        if getattr(self, 'is_indexed_library', False):
+            raise PermissionError('Removing format files is not supported yet in Indexed Library mode; source files are preserved')
         self.ensure_trash_dir()
         removed_map: dict[int, set[str]] = {}
         for book_id, removals in remove_map.items():
