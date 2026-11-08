@@ -22,6 +22,9 @@ class FakeMetadata:
     def get(self, field, default=None):
         return self.values.get(field, default)
 
+    def deepcopy(self):
+        return FakeMetadata(**dict(self.values))
+
 
 class IndexedMetadataReadTests(unittest.TestCase):
     def test_compares_only_present_embedded_values(self):
@@ -45,6 +48,16 @@ class IndexedMetadataReadTests(unittest.TestCase):
         )
         differences = mod.compare_metadata(database, embedded)
         self.assertEqual(set(differences), {'pubdate', 'identifiers'})
+
+    def test_merge_returns_clone_and_applies_only_differences(self):
+        database = FakeMetadata(title='Old Title', authors=['A. Author'], tags=['Fiction'])
+        embedded = FakeMetadata(title='New Title', authors=['A. Author'], tags=None)
+        updated, differences = mod.merge_embedded_metadata(database, embedded)
+        self.assertEqual(updated.values, {'title': 'New Title', 'authors': ['A. Author'], 'tags': ['Fiction']})
+        self.assertEqual(set(differences), {'title'})
+        self.assertEqual(database.values['title'], 'Old Title')
+        self.assertEqual(embedded.values['title'], 'New Title')
+        self.assertIsNot(updated, database)
 
     def test_comparison_does_not_modify_metadata_objects(self):
         database = FakeMetadata(title='Database Title')
