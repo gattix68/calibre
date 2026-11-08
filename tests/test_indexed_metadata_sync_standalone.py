@@ -145,6 +145,31 @@ class IndexedMetadataReadTests(unittest.TestCase):
         self.assertTrue(mod.indexed_file_has_changed(100, 500, changed_size))
         self.assertTrue(mod.indexed_file_has_changed(100, 500, changed_time))
 
+    def test_atomic_transform_replaces_bytes_without_changing_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'book.epub'
+            path.write_bytes(b'original')
+            result = mod.apply_to_indexed_file_atomically(
+                str(path),
+                lambda stream: (stream.write(b'updated'), 'written')[1],
+            )
+            self.assertEqual(result, 'written')
+            self.assertEqual(path.name, 'book.epub')
+            self.assertEqual(path.read_bytes(), b'updated')
+            self.assertFalse(list(Path(temp).glob('.calibre-indexed-*')))
+
+    def test_failed_atomic_transform_preserves_original_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'book.epub'
+            path.write_bytes(b'original')
+            def fail(stream):
+                stream.write(b'partial')
+                raise RuntimeError('simulated metadata writer failure')
+            with self.assertRaises(RuntimeError):
+                mod.apply_to_indexed_file_atomically(str(path), fail)
+            self.assertEqual(path.read_bytes(), b'original')
+            self.assertFalse(list(Path(temp).glob('.calibre-indexed-*')))
+
     def test_rejects_empty_format(self):
         with self.assertRaises(ValueError):
             mod.read_embedded_metadata('/unused.epub', ' . ', metadata_reader=lambda *_: None)
