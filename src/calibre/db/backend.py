@@ -904,6 +904,22 @@ class DB:
                 result['unchanged'].append(record)
         return result
 
+    def scan_indexed_library_sources(self) -> dict[str, list[dict[str, Any]]]:
+        """Discover supported files in configured roots without registering them."""
+        if not getattr(self, 'is_indexed_library', False):
+            raise RuntimeError('Source discovery requires an Indexed Library')
+        from calibre.db.indexed_library_config import load_indexed_library_config
+        from calibre.db.indexed_library_scan import (
+            scan_indexed_source_roots, supported_metadata_reader_formats,
+        )
+
+        config = load_indexed_library_config(self.library_path)
+        if config is None:
+            raise RuntimeError('Indexed Library configuration is missing')
+        return scan_indexed_source_roots(
+            config['source_roots'], supported_metadata_reader_formats()
+        )
+
     def indexed_metadata_capabilities(self, book_id: int) -> dict[str, dict[str, Any]]:
         """Return active Calibre metadata handlers for this book's formats.
 
