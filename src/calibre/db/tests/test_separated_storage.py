@@ -47,6 +47,17 @@ class SeparatedStorageTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             resolve_database_path(str(self.root))
 
+    def test_existing_books_root_database_is_not_shadowed(self):
+        self.configure(self.local)
+        (self.root / 'metadata.db').write_bytes(b'placeholder')
+        with self.assertRaises(FileExistsError):
+            resolve_database_path(str(self.root))
+
+    def test_invalid_json_is_not_silently_ignored(self):
+        (self.root / CONFIG_NAME).write_text('{invalid', encoding='utf-8')
+        with self.assertRaises(json.JSONDecodeError):
+            resolve_database_path(str(self.root))
+
     def test_unknown_config_version_rejected(self):
         self.configure(self.local, version=2)
         with self.assertRaises(ValueError):
