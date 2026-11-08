@@ -7,7 +7,7 @@ indexed-library.json and (eventually) metadata.db. The source ebook roots
 may be remote. This module deliberately does not open or create databases,
 scan roots, or change any ebook files.
 
-Configuration detection is wired into startup; activation remains blocked.
+Completed Indexed Libraries are validated and allowed through normal Calibre startup.
 """
 
 import json
@@ -127,7 +127,7 @@ def check_indexed_library_startup(library_directory: str | os.PathLike[str]) -> 
 
 
 # Indexed-only extension. Never include this in the managed schema or its
-# automatic migration chain. Activation remains blocked by the startup guard.
+# automatic migration chain. Startup validation checks this extension explicitly.
 INDEXED_FILES_SCHEMA = (
     """
     CREATE TABLE IF NOT EXISTS indexed_files (
