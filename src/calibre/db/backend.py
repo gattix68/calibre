@@ -854,6 +854,13 @@ class DB:
 
         return metadata_capabilities_for_formats(formats)
 
+    def compare_indexed_format_metadata(self, book_id: int, fmt: str, database_metadata: Any) -> dict[str, dict[str, Any]]:
+        """Compare one indexed format with supplied Calibre metadata, read-only."""
+        embedded = self.read_indexed_format_metadata(book_id, fmt)
+        from calibre.db.indexed_metadata_sync import compare_metadata
+
+        return compare_metadata(database_metadata, embedded)
+
     def read_indexed_format_metadata(self, book_id: int, fmt: str) -> Any:
         """Read embedded metadata from one registered format without sidecars."""
         if not getattr(self, 'is_indexed_library', False):
