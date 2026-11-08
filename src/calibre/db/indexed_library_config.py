@@ -136,6 +136,8 @@ INDEXED_FILES_SCHEMA = (
         file_path TEXT NOT NULL,
         file_size INTEGER NOT NULL,
         modified_time_ns INTEGER NOT NULL,
+        device_id INTEGER,
+        inode INTEGER,
         PRIMARY KEY (book_id, format),
         FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
     )
