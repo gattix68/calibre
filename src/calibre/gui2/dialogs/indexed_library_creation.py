@@ -140,7 +140,17 @@ class IndexedLibraryCreationDialog(QDialog):
             self.status.setText(_('Creation failed; inspect the destination before retrying.'))
             error_dialog(self, _('Indexed Library creation failed'), str(err), show=True)
             return
-        self.status.setText(_('Indexed Library created; source scan completed.'))
+        try:
+            # Switch the main Calibre window to the newly created library so
+            # the user can immediately inspect the registered records.
+            self.gui.library_moved(database)
+        except Exception as err:
+            error_dialog(
+                self, _('Indexed Library created but could not be opened'),
+                str(err), show=True,
+            )
+            return
+        self.status.setText(_('Indexed Library created, registered, and opened.'))
         details = _(
             'The Indexed Library database was created and verified.\n\n'
             'Read-only scan results:\n'
@@ -151,9 +161,8 @@ class IndexedLibraryCreationDialog(QDialog):
             'Registration errors: {registration_errors}\\n'
             'Scan errors: {errors}\n'
             'Skipped entries: {skipped}\n\n'
-            'No source files were changed. Unambiguous discovered books have been '
-            'registered in the Indexed Library database. Opening and displaying '
-            'those records in the Calibre book list is the next step.'
+            'No source files were changed. The Indexed Library is now open in '
+            'Calibre so you can inspect the registered books.'
         ).format(
             books=plan['book_count'], files=plan['file_count'],
             review=plan['review_count'], registered=registration['registered_count'],
