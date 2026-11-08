@@ -827,9 +827,8 @@ class DB:
     def register_indexed_format(self, book_id: int, fmt: str, file_path: str) -> None:
         """Record an external file location without copying or modifying it.
 
-        Reserved for the Indexed Mode integration milestone; currently disabled.
+        Record a validated external file location without copying or modifying it.
         """
-        self._require_indexed_storage()
         self._require_indexed_storage()
         candidate = os.path.abspath(os.path.expanduser(file_path))
         if os.path.islink(candidate):
@@ -2266,7 +2265,7 @@ class DB:
                 return None
             path = os.path.abspath(row[0])
             try:
-                if not os.path.isfile(path):
+                if os.path.islink(path) or not os.path.isfile(path):
                     return None
             except OSError:
                 return None
