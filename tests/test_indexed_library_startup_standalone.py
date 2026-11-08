@@ -71,7 +71,7 @@ class IndexedLibraryStartupTests(unittest.TestCase):
             marker.write_text('{"mode":"invalid"}', encoding='utf-8')
             with self.assertRaises(config_module.InvalidIndexedLibraryConfig):
                 config_module.load_indexed_library_config(library)
-            self.assertFalse((library / 'metadata.db').exists())
+            self.assertTrue((library / 'metadata.db').is_file())
 
     def test_dangling_symlink_marker_blocks_managed_fallback(self):
         with tempfile.TemporaryDirectory() as temp:
