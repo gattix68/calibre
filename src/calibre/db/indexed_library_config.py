@@ -118,7 +118,7 @@ def check_indexed_library_startup(library_directory: str | os.PathLike[str]) -> 
 # automatic migration chain. Activation remains blocked by the startup guard.
 INDEXED_FILES_SCHEMA = (
     """
-    CREATE TABLE indexed_files (
+    CREATE TABLE IF NOT EXISTS indexed_files (
         book_id INTEGER NOT NULL,
         format TEXT NOT NULL COLLATE NOCASE,
         file_path TEXT NOT NULL,
@@ -129,7 +129,7 @@ INDEXED_FILES_SCHEMA = (
     )
     """,
     """
-    CREATE TRIGGER indexed_files_book_deleted
+    CREATE TRIGGER IF NOT EXISTS indexed_files_book_deleted
         AFTER DELETE ON books
         BEGIN
             DELETE FROM indexed_files WHERE book_id = OLD.id;
