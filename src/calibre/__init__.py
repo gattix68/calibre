@@ -499,7 +499,7 @@ def strftime(fmt: str, t: time.struct_time | date | None = None) -> str:
 def my_unichr(num: int) -> str:
     try:
         return safe_chr(num)
-    except ValueError, OverflowError:
+    except (ValueError, OverflowError):
         return '?'
 
 
