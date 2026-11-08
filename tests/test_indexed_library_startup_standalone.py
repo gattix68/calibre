@@ -64,7 +64,7 @@ class IndexedLibraryStartupTests(unittest.TestCase):
                     );
                 ''')
             (library / 'indexed-library.complete').write_bytes(
-                b'indexed-library-complete-v1\\n'
+                b'indexed-library-complete-v1\n'
             )
             config_module.check_indexed_library_startup(library)
 
