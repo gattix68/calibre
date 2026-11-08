@@ -942,6 +942,74 @@ class DB:
                 result['unchanged'].append(record)
         return result
 
+    def reconcile_indexed_file_renames(self) -> dict[str, Any]:
+        """Update database paths for unambiguous same-filesystem file renames.
+
+        A rename is recognized only when the original path is missing and
+        exactly one discovered file has the same device, inode and format.
+        No source file is opened, moved, renamed, copied or deleted.
+        """
+        if not getattr(self, 'is_indexed_library', False):
+            raise RuntimeError('Rename reconciliation requires an Indexed Library')
+        rows = list(self.conn.execute(
+            'SELECT book_id, format, file_path, device_id, inode '
+            'FROM indexed_files WHERE device_id IS NOT NULL AND inode IS NOT NULL'
+        ))
+        missing = []
+        for row in rows:
+            old_path = os.path.abspath(row[2])
+            if not os.path.lexists(old_path):
+                missing.append(row)
+        if not missing:
+            return {'renamed': [], 'ambiguous': [], 'unmatched': []}
+
+        scan = self.scan_indexed_library_sources()
+        discovered = scan['files']
+        by_identity = {}
+        for item in discovered:
+            identity = (item.get('device_id'), item.get('inode'), item['format'].upper())
+            by_identity.setdefault(identity, []).append(item)
+
+        renamed, ambiguous, unmatched = [], [], []
+        used_paths = set()
+        for row in missing:
+            book_id, fmt, old_path, device_id, inode = row
+            identity = (device_id, inode, fmt.upper())
+            candidates = [
+                item for item in by_identity.get(identity, [])
+                if os.path.abspath(item['path']) not in used_paths
+            ]
+            if len(candidates) != 1:
+                target = ambiguous if len(candidates) > 1 else unmatched
+                target.append({
+                    'book_id': book_id, 'format': fmt, 'old_path': old_path,
+                    'candidates': [item['path'] for item in candidates],
+                })
+                continue
+            item = candidates[0]
+            new_path = os.path.abspath(item['path'])
+            if new_path == os.path.abspath(old_path):
+                continue
+            stat = os.stat(new_path, follow_symlinks=False)
+            with self.conn:
+                self.conn.execute(
+                    'UPDATE indexed_files SET file_path=?, file_size=?, modified_time_ns=?, '
+                    'device_id=?, inode=? WHERE book_id=? AND format=? COLLATE NOCASE '
+                    'AND file_path=?',
+                    (new_path, stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino,
+                     book_id, fmt, old_path),
+                )
+            used_paths.add(new_path)
+            renamed.append({
+                'book_id': book_id, 'format': fmt,
+                'old_path': old_path, 'new_path': new_path,
+                'size': stat.st_size,
+            })
+        return {
+            'renamed': renamed, 'ambiguous': ambiguous, 'unmatched': unmatched,
+            'scan_errors': scan['errors'], 'skipped': scan['skipped'],
+        }
+
     def scan_indexed_library_sources(self) -> dict[str, list[dict[str, Any]]]:
         """Discover supported files in configured roots without registering them."""
         if not getattr(self, 'is_indexed_library', False):
