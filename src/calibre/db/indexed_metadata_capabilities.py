@@ -58,9 +58,17 @@ def metadata_capabilities(
     }
 
 
-def metadata_capabilities_for_formats(formats: Any) -> dict[str, dict[str, Any]]:
+def metadata_capabilities_for_formats(
+    formats: Any,
+    *,
+    readers: Any = None,
+    writers: Any = None,
+    is_disabled: Any = None,
+) -> dict[str, dict[str, Any]]:
     """Return metadata-handler availability for a collection of formats."""
     return {
-        str(fmt).lower().strip().lstrip('.').upper(): metadata_capabilities(str(fmt))
+        str(fmt).lower().strip().lstrip('.').upper(): metadata_capabilities(
+            str(fmt), readers=readers, writers=writers, is_disabled=is_disabled
+        )
         for fmt in sorted({str(x).lower().strip().lstrip('.') for x in formats if str(x).strip()})
     }
