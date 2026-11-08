@@ -977,17 +977,17 @@ class DB:
             identity = (device_id, inode, fmt.upper())
             candidates = [
                 item for item in by_identity.get(identity, [])
-                if os.path.abspath(item['path']) not in used_paths
+                if os.path.abspath(item['file_path']) not in used_paths
             ]
             if len(candidates) != 1:
                 target = ambiguous if len(candidates) > 1 else unmatched
                 target.append({
                     'book_id': book_id, 'format': fmt, 'old_path': old_path,
-                    'candidates': [item['path'] for item in candidates],
+                    'candidates': [item['file_path'] for item in candidates],
                 })
                 continue
             item = candidates[0]
-            new_path = os.path.abspath(item['path'])
+            new_path = os.path.abspath(item['file_path'])
             if new_path == os.path.abspath(old_path):
                 continue
             stat = os.stat(new_path, follow_symlinks=False)
