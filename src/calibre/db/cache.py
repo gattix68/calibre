@@ -2693,6 +2693,7 @@ class Cache:
 
         updated, differences = merge_embedded_metadata(current, embedded)
         if not differences:
+            self.backend.refresh_indexed_file_stat(book_id, fmt)
             return {}
 
         update_title = 'title' in differences
@@ -2703,6 +2704,7 @@ class Cache:
         self.set_metadata(
             book_id, updated, set_title=update_title, set_authors=update_authors
         )
+        self.backend.refresh_indexed_file_stat(book_id, fmt)
         return differences
 
     def _do_add_format(self, book_id: int, fmt: str, stream: str | IO[bytes], name: str | None = None, mtime: float | None = None) -> tuple[int, str]:
