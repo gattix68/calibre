@@ -2601,18 +2601,18 @@ class DB:
             if isinstance(stream, str) and os.path.abspath(stream) == dest:
                 size = os.path.getsize(dest)
             else:
-                directory = os.path.dirname(dest)
-                fd, temporary_path = tempfile.mkstemp(prefix='.calibre-indexed-', suffix='.' + fmt.lower(), dir=directory)
-                os.close(fd)
-                try:
-                    size = write_stream_to_format_file(stream, temporary_path)
-                    if mtime is not None:
-                        os.utime(temporary_path, (mtime, mtime))
-                    os.replace(temporary_path, dest)
-                except BaseException:
-                    with suppress(OSError):
-                        os.remove(temporary_path)
-                    raise
+                dest_stat = os.stat(dest, follow_symlinks=False)
+                if dest_stat.st_nlink > 1:
+                    raise PermissionError(
+                        f'Refusing to replace a hard-linked Indexed source file: {dest}'
+                    )
+                # Write atomically at the original path. This helper preserves
+                # the destination's permissions, ownership and extended
+                # attributes where supported; a separate os.replace() would
+                # silently discard them.
+                size = write_stream_to_format_file(stream, dest)
+                if mtime is not None:
+                    os.utime(dest, (mtime, mtime), follow_symlinks=False)
             stat = os.stat(dest, follow_symlinks=False)
             with self.conn:
                 self.conn.execute(
