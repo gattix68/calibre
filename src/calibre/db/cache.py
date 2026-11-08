@@ -2814,7 +2814,7 @@ class Cache:
                     size = stat.st_size
                     self._record_format_added(book_id, fmt, fname, size)
 
-                self.update_last_modified((book_id,))
+                self._update_last_modified((book_id,))
                 self.format_metadata_cache.pop(book_id, None)
                 result['registered'].append({
                     'book_id': book_id, 'title': str(title),
