@@ -776,9 +776,8 @@ class DB:
             # schema and migration chain. It references the normal books table.
             from calibre.db.indexed_library_config import INDEXED_FILES_SCHEMA
             with self.conn:
-                for statement in INDEXED_FILES_SCHEMA.split(';'):
-                    if statement.strip():
-                        self.conn.execute(statement)
+                for statement in INDEXED_FILES_SCHEMA:
+                    self.conn.execute(statement)
 
         # Guarantee that the library_id is set
         self.library_id  # ruff: ignore[useless-expression]
