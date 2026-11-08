@@ -835,6 +835,54 @@ class DB:
                 (book_id, fmt, full_path, file_stat.st_size, file_stat.st_mtime_ns),
             )
 
+    def find_modified_indexed_files(self, book_id: int | None = None) -> dict[str, list[dict[str, Any]]]:
+        """Find indexed files changed or missing since their last recorded stat.
+
+        This is a read-only filesystem scan. It does not update the indexed
+        size/mtime baseline, so failed or incomplete metadata reads remain
+        detectable on the next synchronization attempt.
+        """
+        if not getattr(self, 'is_indexed_library', False):
+            raise RuntimeError('File change detection requires an Indexed Library')
+        sql = (
+            'SELECT book_id, format, file_path, file_size, modified_time_ns '
+            'FROM indexed_files'
+        )
+        args: tuple[Any, ...] = ()
+        if book_id is not None:
+            sql += ' WHERE book_id=?'
+            args = (book_id,)
+        sql += ' ORDER BY book_id, format'
+        from calibre.db.indexed_metadata_sync import indexed_file_has_changed
+
+        result: dict[str, list[dict[str, Any]]] = {
+            'modified': [], 'missing': [], 'unchanged': [],
+        }
+        for row in self.conn.execute(sql, args):
+            record = {
+                'book_id': row[0], 'format': row[1],
+                'file_path': row[2], 'recorded_size': row[3],
+                'recorded_mtime_ns': row[4],
+            }
+            path = os.path.abspath(row[2])
+            try:
+                if os.path.islink(path):
+                    raise OSError('Indexed source file is a symbolic link')
+                stat = os.stat(path, follow_symlinks=False)
+                if not os.path.isfile(path):
+                    raise OSError('Indexed source file is not a regular file')
+            except OSError as err:
+                record['error'] = str(err)
+                result['missing'].append(record)
+                continue
+            if indexed_file_has_changed(row[3], row[4], stat):
+                record['current_size'] = stat.st_size
+                record['current_mtime_ns'] = stat.st_mtime_ns
+                result['modified'].append(record)
+            else:
+                result['unchanged'].append(record)
+        return result
+
     def indexed_metadata_capabilities(self, book_id: int) -> dict[str, dict[str, Any]]:
         """Return active Calibre metadata handlers for this book's formats.
 
