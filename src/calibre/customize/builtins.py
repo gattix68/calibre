@@ -1115,6 +1115,12 @@ class ActionChooseLibrary(InterfaceActionBase):
     description = _('Switch between different calibre libraries and perform maintenance on them')
 
 
+class ActionIndexedLibrary(InterfaceActionBase):
+    name = 'Indexed Library'
+    actual_plugin = 'calibre.gui2.actions.indexed_library:IndexedLibraryAction'
+    description = _('Create and manage libraries that keep books in their existing folders')
+
+
 class ActionAddToLibrary(InterfaceActionBase):
     name = 'Add To Library'
     actual_plugin = 'calibre.gui2.actions.add_to_library:AddToLibraryAction'
@@ -1292,6 +1298,7 @@ plugins += [
     ActionMatchBooks,
     ActionShowMatchedBooks,
     ActionChooseLibrary,
+    ActionIndexedLibrary,
     ActionCopyToLibrary,
     ActionTweakEpub,
     ActionUnpackBook,
