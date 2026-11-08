@@ -98,20 +98,32 @@ def validate_indexed_storage_separation(library_directory: str | os.PathLike[str
 
 
 def check_indexed_library_startup(library_directory: str | os.PathLike[str]) -> None:
-    """Fail closed for Indexed libraries until file-operation guards exist.
+    """Validate a completed Indexed Library before normal Calibre startup.
 
-    Managed libraries return normally. No database or ebook files are opened.
+    Managed libraries return normally. Indexed libraries must have the
+    explicit completion sentinel and the external-file mapping schema.
     """
     config = load_indexed_library_config(library_directory)
     if config is None:
         return
     dbpath = indexed_database_path(library_directory)
-    if not dbpath.is_absolute():
-        raise RuntimeError('Indexed database path must be absolute')
-    raise RuntimeError(
-        'Indexed Library Mode is not yet available: external file '
-        'safety protections must be completed before opening this library'
-    )
+    if not dbpath.is_absolute() or not dbpath.is_file():
+        raise RuntimeError('Indexed Library database is missing or invalid')
+    completion = Path(library_directory) / 'indexed-library.complete'
+    if completion.is_symlink() or not completion.is_file():
+        raise RuntimeError('Indexed Library creation is incomplete; completion marker is missing')
+    if completion.read_bytes() != b'indexed-library-complete-v1\\n':
+        raise RuntimeError('Indexed Library completion marker is invalid')
+    import sqlite3
+    try:
+        with sqlite3.connect(f'file:{dbpath}?mode=ro', uri=True) as conn:
+            tables = {row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )}
+            if not {'books', 'data', 'formats', 'indexed_files'} <= tables:
+                raise RuntimeError('Indexed Library database schema is incomplete')
+    except sqlite3.Error as err:
+        raise RuntimeError(f'Cannot validate Indexed Library database: {err}') from err
 
 
 # Indexed-only extension. Never include this in the managed schema or its
