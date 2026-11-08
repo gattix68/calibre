@@ -67,6 +67,13 @@ class IndexedMetadataCapabilitiesTests(unittest.TestCase):
         self.assertFalse(cbz['can_write_metadata'])
         self.assertEqual(cbz['writers'], [])
 
+    def test_capabilities_for_multiple_formats(self):
+        formats = mod.metadata_capabilities_for_formats(['EPUB', 'pdf', 'cbz', 'EPUB'])
+        self.assertEqual(list(formats), ['CBZ', 'EPUB', 'PDF'])
+        self.assertEqual(formats['EPUB']['format'], 'EPUB')
+        self.assertTrue(formats['EPUB']['can_read_metadata'])
+        self.assertTrue(formats['EPUB']['can_write_metadata'])
+
     def test_empty_format_is_rejected(self):
         with self.assertRaises(ValueError):
             mod.metadata_capabilities(' . ')
