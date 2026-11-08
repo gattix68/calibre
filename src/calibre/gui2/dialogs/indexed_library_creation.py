@@ -25,9 +25,9 @@ class IndexedLibraryCreationDialog(QDialog):
         layout = QVBoxLayout(self)
 
         description = QLabel(_(
-            'Choose an existing empty local directory for the Indexed Library '
-            'database and a separate directory for your ebooks. '
-            'This preview does not create, scan, move, rename, or delete files.'
+            'Create a local Indexed Library database and scan an existing ebook '
+            'directory. Scanning is read-only: source files are never copied, '
+            'moved, renamed, or deleted.'
         ), self)
         description.setWordWrap(True)
         layout.addWidget(description)
@@ -132,13 +132,13 @@ class IndexedLibraryCreationDialog(QDialog):
             return
         self.status.setText(_('Indexed Library created; source scan completed.'))
         details = _(
-            'The Indexed Library database was created and verified.\\n\\n'
-            'Read-only scan results:\\n'
-            'Books discovered: {books}\\n'
-            'Files discovered: {files}\\n'
-            'Books needing metadata review: {review}\\n'
-            'Scan errors: {errors}\\n'
-            'Skipped entries: {skipped}\\n\\n'
+            'The Indexed Library database was created and verified.\n\n'
+            'Read-only scan results:\n'
+            'Books discovered: {books}\n'
+            'Files discovered: {files}\n'
+            'Books needing metadata review: {review}\n'
+            'Scan errors: {errors}\n'
+            'Skipped entries: {skipped}\n\n'
             'No source files were changed. This milestone creates the database '
             'and verifies discovery; registering books and opening the library '
             'in the Calibre book list are the next implementation steps.'
