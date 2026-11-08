@@ -854,6 +854,17 @@ class DB:
 
         return metadata_capabilities_for_formats(formats)
 
+    def read_indexed_format_metadata(self, book_id: int, fmt: str) -> Any:
+        """Read embedded metadata from one registered format without sidecars."""
+        if not getattr(self, 'is_indexed_library', False):
+            raise RuntimeError('Embedded metadata extraction requires an Indexed Library')
+        path = self.resolve_indexed_format(book_id, fmt)
+        if path is None or not os.path.isfile(path):
+            raise NoSuchFormat(f'Record {book_id} has no accessible indexed format: {fmt}')
+        from calibre.db.indexed_metadata_sync import read_embedded_metadata
+
+        return read_embedded_metadata(path, fmt)
+
     def resolve_indexed_format(self, book_id: int, fmt: str) -> str | None:
         """Return the recorded external path without renaming or accessing it."""
         self._require_indexed_storage()
