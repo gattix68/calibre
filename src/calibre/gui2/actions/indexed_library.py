@@ -51,7 +51,7 @@ class IndexedLibraryAction(InterfaceAction):
             config = None
         self.is_indexed = config is not None
         self.indexed_name = os.path.basename(os.path.abspath(path)) if self.is_indexed else ''
-        label = _('Indexed Library') + (f'\\n{self.indexed_name}' if self.is_indexed else '')
+        label = _('Indexed Library') + (f'\n{self.indexed_name}' if self.is_indexed else '')
         self.qaction.setText(label)
         self.menuless_qaction.setText(label)
         self.qaction.setToolTip(
