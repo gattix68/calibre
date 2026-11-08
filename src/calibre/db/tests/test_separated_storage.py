@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from calibre.db.separated_storage import CONFIG_NAME, resolve_database_path
+from calibre.db.separated_storage import CONFIG_NAME, configure_separated_storage, resolve_database_path
 
 
 class SeparatedStorageTests(unittest.TestCase):
@@ -57,6 +57,28 @@ class SeparatedStorageTests(unittest.TestCase):
         (self.root / CONFIG_NAME).write_text('{invalid', encoding='utf-8')
         with self.assertRaises(json.JSONDecodeError):
             resolve_database_path(str(self.root))
+
+    def test_create_separated_library_configuration(self):
+        expected = configure_separated_storage(str(self.root), str(self.local))
+        self.assertEqual(expected, str(self.local / 'metadata.db'))
+        self.assertEqual(resolve_database_path(str(self.root)), expected)
+
+    def test_create_refuses_existing_database(self):
+        (self.root / 'metadata.db').write_bytes(b'existing')
+        with self.assertRaises(FileExistsError):
+            configure_separated_storage(str(self.root), str(self.local))
+        self.assertFalse((self.root / CONFIG_NAME).exists())
+
+    def test_create_refuses_existing_target_database(self):
+        (self.local / 'metadata.db').write_bytes(b'existing')
+        with self.assertRaises(FileExistsError):
+            configure_separated_storage(str(self.root), str(self.local))
+        self.assertFalse((self.root / CONFIG_NAME).exists())
+
+    def test_create_refuses_overwriting_marker(self):
+        configure_separated_storage(str(self.root), str(self.local))
+        with self.assertRaises(FileExistsError):
+            configure_separated_storage(str(self.root), str(self.local))
 
     def test_unknown_config_version_rejected(self):
         self.configure(self.local, version=2)
