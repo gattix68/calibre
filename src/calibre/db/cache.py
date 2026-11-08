@@ -20,7 +20,7 @@ from io import DEFAULT_BUFFER_SIZE, BytesIO
 from queue import Queue, ShutDown
 from threading import Lock
 from time import mktime, monotonic, time
-from typing import IO, TYPE_CHECKING, Literal, NamedTuple, Protocol, cast, overload
+from typing import Any, IO, TYPE_CHECKING, Literal, NamedTuple, Protocol, cast, overload
 
 from calibre import as_unicode, detect_ncpus, prints
 from calibre.constants import iswindows, preferred_encoding
