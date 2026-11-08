@@ -125,3 +125,36 @@ def indexed_file_has_changed(recorded_size: int, recorded_mtime_ns: int, current
         int(recorded_size) != int(current_stat.st_size)
         or int(recorded_mtime_ns) != int(current_stat.st_mtime_ns)
     )
+
+
+def plan_embedded_metadata_sync(database_metadata: Any, embedded_by_format: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
+    """Build a conflict-aware metadata update from all changed formats of a book.
+
+    A field is eligible for update only when all changed formats that provide
+    a non-null value agree. Conflicting fields are reported and left unchanged.
+    The database Metadata object is cloned; no input object is modified.
+    """
+    candidates: dict[str, list[tuple[str, Any]]] = {}
+    for fmt, embedded in sorted(embedded_by_format.items(), key=lambda item: item[0].casefold()):
+        for field, change in compare_metadata(database_metadata, embedded).items():
+            candidates.setdefault(field, []).append((fmt, change['embedded']))
+
+    updates: dict[str, Any] = {}
+    conflicts: dict[str, list[dict[str, Any]]] = {}
+    for field, values in candidates.items():
+        distinct: dict[Any, list[str]] = {}
+        for fmt, value in values:
+            key = repr(_comparable_value(value))
+            distinct.setdefault(key, []).append(fmt)
+        if len(distinct) > 1:
+            conflicts[field] = [
+                {'formats': formats, 'value': next(value for fmt, value in values if fmt in formats)}
+                for formats in distinct.values()
+            ]
+        else:
+            updates[field] = values[0][1]
+
+    updated = database_metadata.deepcopy()
+    for field, value in updates.items():
+        setattr(updated, field, value)
+    return updated, {'updates': updates, 'conflicts': conflicts}
