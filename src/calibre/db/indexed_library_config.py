@@ -112,7 +112,7 @@ def check_indexed_library_startup(library_directory: str | os.PathLike[str]) -> 
     completion = Path(library_directory) / 'indexed-library.complete'
     if completion.is_symlink() or not completion.is_file():
         raise RuntimeError('Indexed Library creation is incomplete; completion marker is missing')
-    if completion.read_bytes() != b'indexed-library-complete-v1\\n':
+    if completion.read_bytes() != b'indexed-library-complete-v1\n':
         raise RuntimeError('Indexed Library completion marker is invalid')
     import sqlite3
     try:
