@@ -2738,6 +2738,16 @@ class Cache:
             if book.get('requires_review') and not include_review:
                 result['skipped_review'].append(book.get('metadata_source'))
                 continue
+            # Duplicate files of the same format cannot be represented as one
+            # Calibre book format. Even explicit metadata-review approval must
+            # not silently discard one of those source files.
+            if book.get('duplicate_formats'):
+                result['errors'].append({
+                    'metadata_source': book.get('metadata_source'),
+                    'error': 'Duplicate same-format files must be resolved before registration',
+                    'duplicate_formats': book['duplicate_formats'],
+                })
+                continue
             formats = book.get('formats') or []
             metadata_values = book.get('proposed_metadata') or {}
             if not formats:
