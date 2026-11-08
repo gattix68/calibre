@@ -2262,41 +2262,17 @@ class DB:
         if path is None:
             return missing_value
         if getattr(self, 'is_indexed_library', False):
-            # Metadata writers operate on a temporary copy. Publish atomically
-            # only if the registered source file is still the same regular file.
-            if os.path.islink(path) or not os.path.isfile(path):
-                raise OSError(f'Indexed source file is missing or unsafe: {path}')
-            before = os.stat(path, follow_symlinks=False)
-            fd, temporary_path = tempfile.mkstemp(
-                prefix='.calibre-indexed-', suffix=os.path.splitext(path)[1],
-                dir=os.path.dirname(path),
-            )
-            try:
-                with os.fdopen(fd, 'w+b') as target, open(path, 'rb') as source:
-                    shutil.copyfileobj(source, target)
-                    target.flush()
-                    target.seek(0)
-                    answer = func(target)
-                    target.flush()
-                    os.fsync(target.fileno())
-                current = os.stat(path, follow_symlinks=False)
-                if (current.st_dev, current.st_ino, current.st_size, current.st_mtime_ns) != (
-                    before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns
-                ):
-                    raise RuntimeError('Indexed source file changed during metadata update')
-                os.replace(temporary_path, path)
-                stat = os.stat(path, follow_symlinks=False)
-                with self.conn:
-                    self.conn.execute(
-                        'UPDATE indexed_files SET file_size=?, modified_time_ns=? '
-                        'WHERE book_id=? AND format=? COLLATE NOCASE',
-                        (stat.st_size, stat.st_mtime_ns, book_id, fmt.strip().lstrip('.').upper()),
-                    )
-                return answer
-            except BaseException:
-                with suppress(OSError):
-                    os.remove(temporary_path)
-                raise
+            from calibre.db.indexed_metadata_sync import apply_to_indexed_file_atomically
+
+            answer = apply_to_indexed_file_atomically(path, func)
+            stat = os.stat(path, follow_symlinks=False)
+            with self.conn:
+                self.conn.execute(
+                    'UPDATE indexed_files SET file_size=?, modified_time_ns=? '
+                    'WHERE book_id=? AND format=? COLLATE NOCASE',
+                    (stat.st_size, stat.st_mtime_ns, book_id, fmt.strip().lstrip('.').upper()),
+                )
+            return answer
         with open(path, 'r+b') as f:
             return func(f)
 
