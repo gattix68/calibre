@@ -7,7 +7,6 @@ The books root remains Calibre's normal library_path.
 """
 import json
 import os
-import tempfile
 import uuid
 
 CONFIG_NAME = '.calibre-separated-storage.json'
@@ -63,17 +62,15 @@ def mark_initialized(library_path, config):
         return config
     check_storage(library_path, config)
     config = dict(config, initialized=True)
-    fd, temporary = tempfile.mkstemp(prefix='.calibre-storage-', dir=library_path)
-    try:
-        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
-            json.dump(config, stream, indent=2)
-            stream.write('\n')
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, os.path.join(library_path, CONFIG_NAME))
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+    # Like normal cover and OPF writes, write the destination directly.
+    # GVfs SMB can support ordinary writes while rejecting replacement renames.
+    # A failed/interrupted write leaves an invalid or mismatched marker, which
+    # storage_identity() rejects; never fall back to a new empty database.
+    with open(os.path.join(library_path, CONFIG_NAME), 'w', encoding='utf-8') as stream:
+        json.dump(config, stream, indent=2)
+        stream.write('\n')
+        stream.flush()
+        os.fsync(stream.fileno())
     registry()[os.path.abspath(library_path)] = config
     return config
 
@@ -137,7 +134,7 @@ def validate_directories(root, database_directory):
 
 
 def configure_separated_storage(library_path: str, database_directory: str) -> str:
-    """Atomically configure a *new* normal library before DB initialization.
+    """Exclusively configure a *new* normal library before DB initialization.
 
     Both directories must already exist. Never relocate an existing database.
     Returns the target database path; the caller can then initialize Calibre.
@@ -170,20 +167,15 @@ def configure_separated_storage(library_path: str, database_directory: str) -> s
         stream.write(payload + '\n')
         stream.flush()
         os.fsync(stream.fileno())
-    temporary = None
     try:
-        fd, temporary = tempfile.mkstemp(prefix='.calibre-storage-', dir=root)
-        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+        # Exclusive direct creation avoids requiring hard links or replacement
+        # renames on GVfs SMB. Never truncate somebody else's marker.
+        with open(config_path, 'x', encoding='utf-8') as stream:
             stream.write(payload + '\n')
             stream.flush()
             os.fsync(stream.fileno())
-        # A hard link fails rather than replacing an existing marker.
-        os.link(temporary, config_path)
     except Exception:
         os.unlink(owner_path)
         raise
-    finally:
-        if temporary is not None:
-            os.unlink(temporary)
     registry()[root] = config
     return target

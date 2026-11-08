@@ -1,15 +1,31 @@
 #!/usr/bin/env python
 # License: GPLv3
 """Standalone regression tests for separated database path resolution."""
+import errno
 import json
 import os
 import tempfile
 import unittest
+from contextlib import contextmanager
 from io import BytesIO
-from unittest.mock import patch
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
-from calibre.db.separated_storage import CONFIG_NAME, configure_separated_storage, resolve_database_path
+from calibre.db.separated_storage import (
+    CONFIG_NAME, DATABASE_CONFIG_NAME, configure_separated_storage, mark_initialized, resolve_database_path,
+)
+
+
+@contextmanager
+def smb_marker_operations():
+    # Only the new marker writer is constrained. Calibre's normal file
+    # management continues to use its existing operations unchanged.
+    filesystem = SimpleNamespace(**vars(os))
+    for name in ('link', 'rename', 'replace'):
+        setattr(filesystem, name, Mock(side_effect=PermissionError(errno.EPERM, 'GVfs SMB rejects marker relocation')))
+    with patch('calibre.db.separated_storage.os', filesystem):
+        yield filesystem
 
 
 class SeparatedStorageTests(unittest.TestCase):
@@ -112,6 +128,71 @@ class SeparatedStorageTests(unittest.TestCase):
             configure_separated_storage(str(other), str(self.local))
         self.assertFalse((other / CONFIG_NAME).exists())
 
+    def test_creation_without_hard_links_or_renames(self):
+        with smb_marker_operations() as filesystem:
+            configure_separated_storage(str(self.root), str(self.local))
+            self.assertEqual(resolve_database_path(str(self.root)), str(self.local / 'metadata.db'))
+            for name in ('link', 'rename', 'replace'):
+                getattr(filesystem, name).assert_not_called()
+        self.assertEqual({p.name for p in self.root.iterdir()}, {CONFIG_NAME})
+        self.assertEqual({p.name for p in self.local.iterdir()}, {DATABASE_CONFIG_NAME})
+
+    def test_initialization_without_replacement_rename(self):
+        configure_separated_storage(str(self.root), str(self.local))
+        config = json.loads((self.root / CONFIG_NAME).read_text(encoding='utf-8'))
+        (self.local / 'metadata.db').write_bytes(b'existing database')
+        with smb_marker_operations() as filesystem:
+            updated = mark_initialized(str(self.root), config)
+            self.assertTrue(updated['initialized'])
+            self.assertEqual(resolve_database_path(str(self.root)), str(self.local / 'metadata.db'))
+            self.assertEqual(json.loads((self.root / CONFIG_NAME).read_text(encoding='utf-8')), updated)
+            for name in ('link', 'rename', 'replace'):
+                getattr(filesystem, name).assert_not_called()
+
+    def test_exclusive_create_preserves_racing_marker(self):
+        original_open = open
+        marker = self.root / CONFIG_NAME
+
+        def racing_open(path, mode='r', *args, **kwargs):
+            if os.fspath(path) == str(marker) and mode == 'x':
+                marker.write_text('another creator owns this marker', encoding='utf-8')
+            return original_open(path, mode, *args, **kwargs)
+
+        with patch('calibre.db.separated_storage.open', side_effect=racing_open):
+            with self.assertRaises(FileExistsError):
+                configure_separated_storage(str(self.root), str(self.local))
+        self.assertEqual(marker.read_text(encoding='utf-8'), 'another creator owns this marker')
+        self.assertFalse((self.local / DATABASE_CONFIG_NAME).exists())
+        self.assertEqual(self.registry, {})
+
+    def test_initialization_refuses_changed_marker_before_writing(self):
+        configure_separated_storage(str(self.root), str(self.local))
+        config = json.loads((self.root / CONFIG_NAME).read_text(encoding='utf-8'))
+        changed = dict(config, storage_id='other library')
+        contents = json.dumps(changed)
+        (self.root / CONFIG_NAME).write_text(contents, encoding='utf-8')
+        with self.assertRaises(OSError):
+            mark_initialized(str(self.root), config)
+        self.assertEqual((self.root / CONFIG_NAME).read_text(encoding='utf-8'), contents)
+
+    def test_interrupted_initialization_fails_closed(self):
+        configure_separated_storage(str(self.root), str(self.local))
+        config = json.loads((self.root / CONFIG_NAME).read_text(encoding='utf-8'))
+        database = self.local / 'metadata.db'
+        database.write_bytes(b'existing database')
+
+        def interrupted_dump(config, stream, **kwargs):
+            stream.write('{"version":')
+            raise OSError(errno.ENOSPC, 'simulated interrupted marker write')
+
+        with patch('calibre.db.separated_storage.json.dump', side_effect=interrupted_dump):
+            with self.assertRaises(OSError):
+                mark_initialized(str(self.root), config)
+        with self.assertRaises(ValueError):
+            resolve_database_path(str(self.root))
+        self.assertEqual(self.registry[str(self.root)], config)
+        self.assertEqual(database.read_bytes(), b'existing database')
+
     def test_unknown_config_version_rejected(self):
         self.configure(self.local, version=2)
         with self.assertRaises(ValueError):
@@ -133,6 +214,26 @@ class SeparatedOperationsTests(unittest.TestCase):
         book = cache.create_book_entry(Metadata('Original title', ['Original author']))
         self.assertTrue(cache.add_format(book, 'TXT', BytesIO(b'original book'), run_hooks=False))
         return book
+
+    def test_normal_library_with_smb_marker_restrictions(self):
+        from calibre.db.tests.base import IMG
+        with smb_marker_operations() as filesystem:
+            configure_separated_storage(str(self.root), str(self.local))
+            cache = self.open_library()
+            book = self.create_book(cache)
+            cache.set_field('title', {book: 'SMB title'})
+            cache.set_cover({book: IMG})
+            cache.dump_metadata()
+            cache.close()
+            reopened = self.open_library()
+            self.assertEqual(reopened.dbpath, str(self.local / 'metadata.db'))
+            self.assertEqual(reopened.field_for('title', book), 'SMB title')
+            self.assertEqual(reopened.format(book, 'TXT'), b'original book')
+            self.assertIsNotNone(reopened.cover(book))
+            self.assertTrue(list(self.root.rglob('metadata.opf')))
+            self.assertFalse((self.root / 'metadata.db').exists())
+            for name in ('link', 'rename', 'replace'):
+                getattr(filesystem, name).assert_not_called()
 
     def test_managed_operations_and_reopen(self):
         from calibre.db.tests.base import IMG

@@ -163,3 +163,42 @@ by constructing its calendar-date fixtures in the local timezone. One
 intermediate suite rerun exceeded its diagnostic timeout; the final rerun
 completed in 93.946 seconds. These results do not establish real NAS or reader
 scanner compatibility.
+
+### SMB-compatible marker initialization
+
+The separated-storage marker writer originally introduced operations beyond
+normal managed-library writes: creation published a temporary file using
+`os.link()`, and initialization completed with a temporary-file `os.replace()`.
+The reported GVfs SMB failure was `EPERM` on the latter. Support for ordinary
+SMB file writes does not establish support for either marker operation.
+Calibre's existing OPF backup (`DB.write_backup`) and unprocessed cover writes
+open their destination directly; they do not require that publication pattern.
+
+Creation now uses exclusive direct file creation (`open(..., 'x')`) and completion
+writes the already-validated marker directly (`open(..., 'w')`). Flush/fsync,
+identity validation, exclusive ownership, the local SQLite database, and normal
+book management remain in place. Existing marker version/layout is unchanged.
+This removes both new link/rename requirements, without requiring a different
+SMB connection, a kernel CIFS mount, or a permanent mount such as `/mnt/mediapool`.
+It does not convert an `smb://` URL into an unrelated local path.
+
+These marker writes are not atomic replacements. If a write is interrupted,
+a malformed or mismatched marker is rejected rather than interpreted as an
+ordinary library or permission to create a fresh database. The registry is
+updated only after the marker write succeeds. Recovery from an interrupted
+marker write requires checking/restoring its configuration, not moving books
+or discarding the database.
+
+Regressions simulate `EPERM` for link, rename, and replacement operations in the
+marker writer, and verify creation, completion, reopen, and normal managed-book
+operations. They also cover exclusive-create races, changed ownership, and an
+interrupted initialization write. The creation and completion tests both fail
+with the reported permission error against the previous implementation.
+All tests use temporary directories; an actual GVfs SMB manual retry remains
+necessary before claiming that the reported environment has been verified.
+
+Fix validation on 2026-11-08: the storage regression module ran 35 tests with
+zero failures/errors and one APSW-shell skip. The complete database suite ran
+171 tests in 90.201 seconds with zero failures/errors and the same three runtime/
+platform skips described above. Modified Python files parsed successfully and
+`git diff --check` passed. No production library or NAS share was accessed.
