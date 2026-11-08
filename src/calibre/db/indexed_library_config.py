@@ -120,7 +120,7 @@ def check_indexed_library_startup(library_directory: str | os.PathLike[str]) -> 
             tables = {row[0] for row in conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
             )}
-            if not {'books', 'data', 'formats', 'indexed_files'} <= tables:
+            if not {'books', 'data', 'indexed_files'} <= tables:
                 raise RuntimeError('Indexed Library database schema is incomplete')
     except sqlite3.Error as err:
         raise RuntimeError(f'Cannot validate Indexed Library database: {err}') from err
