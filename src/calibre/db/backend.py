@@ -858,7 +858,11 @@ class DB:
         """Read embedded metadata from one registered format without sidecars."""
         if not getattr(self, 'is_indexed_library', False):
             raise RuntimeError('Embedded metadata extraction requires an Indexed Library')
-        path = self.resolve_indexed_format(book_id, fmt)
+        row = self.conn.execute(
+            'SELECT file_path FROM indexed_files WHERE book_id=? AND format=? COLLATE NOCASE',
+            (book_id, fmt.strip().lstrip('.').upper()),
+        ).fetchone()
+        path = os.path.abspath(row[0]) if row else None
         if path is None or not os.path.isfile(path):
             raise NoSuchFormat(f'Record {book_id} has no accessible indexed format: {fmt}')
         from calibre.db.indexed_metadata_sync import read_embedded_metadata
