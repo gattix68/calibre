@@ -2688,22 +2688,20 @@ class Cache:
             raise RuntimeError('Metadata synchronization requires an Indexed Library')
 
         embedded = self.backend.read_indexed_format_metadata(book_id, fmt)
-        current = self.get_metadata(book_id).deepcopy()
-        from calibre.db.indexed_metadata_sync import compare_metadata
+        current = self.get_metadata(book_id)
+        from calibre.db.indexed_metadata_sync import merge_embedded_metadata
 
-        differences = compare_metadata(current, embedded)
+        updated, differences = merge_embedded_metadata(current, embedded)
         if not differences:
             return {}
 
         update_title = 'title' in differences
         update_authors = 'authors' in differences
-        for field, change in differences.items():
-            setattr(current, field, change['embedded'])
 
         # Do not force empty/null values into fields that the file format
         # cannot represent. compare_metadata deliberately filters null values.
         self.set_metadata(
-            book_id, current, set_title=update_title, set_authors=update_authors
+            book_id, updated, set_title=update_title, set_authors=update_authors
         )
         return differences
 
