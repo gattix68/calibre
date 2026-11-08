@@ -835,6 +835,25 @@ class DB:
                 (book_id, fmt, full_path, file_stat.st_size, file_stat.st_mtime_ns),
             )
 
+    def indexed_metadata_capabilities(self, book_id: int) -> dict[str, dict[str, Any]]:
+        """Return active Calibre metadata handlers for this book's formats.
+
+        This is a read-only query: it does not open or modify any book file.
+        A writer being available for a format does not imply that every
+        Calibre metadata field can be represented by that format.
+        """
+        if not getattr(self, 'is_indexed_library', False):
+            return {}
+        formats = (
+            row[0] for row in self.conn.execute(
+                'SELECT format FROM indexed_files WHERE book_id=? ORDER BY format',
+                (book_id,),
+            )
+        )
+        from calibre.db.indexed_metadata_capabilities import metadata_capabilities_for_formats
+
+        return metadata_capabilities_for_formats(formats)
+
     def resolve_indexed_format(self, book_id: int, fmt: str) -> str | None:
         """Return the recorded external path without renaming or accessing it."""
         self._require_indexed_storage()
