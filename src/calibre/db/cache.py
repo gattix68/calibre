@@ -3199,7 +3199,13 @@ class Cache:
         those books are left unchanged and :class:`BooksNotRemoved` is raised
         after all the other books have been removed."""
         path_map = {}
+        indexed_library = getattr(self.backend, 'is_indexed_library', False)
         for book_id in book_ids:
+            if indexed_library:
+                # Indexed books have no Calibre-managed book directory.
+                # Removal means unregistering the database record only.
+                path_map[book_id] = None
+                continue
             try:
                 path = self._get_book_path(book_id)
             except Exception:
