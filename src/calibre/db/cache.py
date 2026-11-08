@@ -2905,6 +2905,11 @@ class Cache:
         :param db_only: If True, only remove the record for the format from the db, do not delete the actual format file from the filesystem.
         :return: A map of book id to set of formats actually deleted from the filesystem for that book
         """
+        if getattr(self.backend, 'is_indexed_library', False):
+            raise PermissionError(
+                'Removing registered formats is disabled in Indexed Library mode; '
+                'source files and their database registrations are preserved'
+            )
         table = self.fields['formats'].table
         formats_map = {book_id: frozenset((f or '').upper() for f in fmts) for book_id, fmts in formats_map.items()}
         removed_map = {}
