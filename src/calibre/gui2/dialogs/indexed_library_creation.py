@@ -126,6 +126,16 @@ class IndexedLibraryCreationDialog(QDialog):
                 [source], supported_metadata_reader_formats()
             )
             plan = build_indexed_registration_plan(scan)
+            from calibre.db.legacy import LibraryDatabase
+
+            indexed_db = LibraryDatabase(database)
+            try:
+                registration = indexed_db.new_api.register_indexed_library_plan(
+                    plan, include_review=False
+                )
+                indexed_db.commit()
+            finally:
+                indexed_db.close()
         except Exception as err:
             self.status.setText(_('Creation failed; inspect the destination before retrying.'))
             error_dialog(self, _('Indexed Library creation failed'), str(err), show=True)
@@ -137,6 +147,8 @@ class IndexedLibraryCreationDialog(QDialog):
             'Books discovered: {books}\n'
             'Files discovered: {files}\n'
             'Books needing metadata review: {review}\n'
+            'Books registered: {registered}\\n'
+            'Registration errors: {registration_errors}\\n'
             'Scan errors: {errors}\n'
             'Skipped entries: {skipped}\n\n'
             'No source files were changed. This milestone creates the database '
@@ -144,7 +156,8 @@ class IndexedLibraryCreationDialog(QDialog):
             'in the Calibre book list are the next implementation steps.'
         ).format(
             books=plan['book_count'], files=plan['file_count'],
-            review=plan['review_count'], errors=len(scan['errors']),
+            review=plan['review_count'], registered=registration['registered_count'],
+            registration_errors=registration['error_count'], errors=len(scan['errors']),
             skipped=len(scan['skipped']),
         )
         info_dialog(self, _('Indexed Library scan complete'), details, show=True)
