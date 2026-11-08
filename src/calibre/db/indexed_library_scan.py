@@ -45,8 +45,6 @@ def scan_indexed_source_roots(
         if path.is_symlink():
             result['skipped'].append({'file_path': str(path), 'reason': 'symbolic link'})
             return
-        if os.path.samestat(st, st) is False:
-            return
         identity = (st.st_dev, st.st_ino)
         if identity in seen:
             result['skipped'].append({'file_path': str(path), 'reason': 'already visited'})
