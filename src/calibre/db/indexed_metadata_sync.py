@@ -45,7 +45,7 @@ def read_embedded_metadata(
 COMPARABLE_METADATA_FIELDS = (
     'title', 'authors', 'author_sort', 'title_sort', 'series', 'series_index',
     'publisher', 'pubdate', 'tags', 'comments', 'languages', 'identifiers',
-    'rating', 'isbn',
+    'rating',
 )
 
 
