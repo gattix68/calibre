@@ -65,6 +65,28 @@ class IndexedMetadataReadTests(unittest.TestCase):
         self.assertEqual(embedded.values['title'], 'New Title')
         self.assertIsNot(updated, database)
 
+    def test_sync_plan_accepts_agreement_across_formats(self):
+        database = FakeMetadata(title='Old', publisher='Old Publisher')
+        epub = FakeMetadata(title='New', publisher='New Publisher')
+        pdf = FakeMetadata(title='New', publisher='New Publisher')
+        updated, plan = mod.plan_embedded_metadata_sync(database, {'EPUB': epub, 'PDF': pdf})
+        self.assertEqual(updated.values['title'], 'New')
+        self.assertEqual(updated.values['publisher'], 'New Publisher')
+        self.assertEqual(set(plan['updates']), {'title', 'publisher'})
+        self.assertEqual(plan['conflicts'], {})
+        self.assertEqual(database.values['title'], 'Old')
+
+    def test_sync_plan_reports_conflicting_format_values(self):
+        database = FakeMetadata(title='Old', publisher='Old Publisher')
+        epub = FakeMetadata(title='EPUB Title', publisher='Shared Publisher')
+        pdf = FakeMetadata(title='PDF Title', publisher='Shared Publisher')
+        updated, plan = mod.plan_embedded_metadata_sync(database, {'EPUB': epub, 'PDF': pdf})
+        self.assertEqual(updated.values['title'], 'Old')
+        self.assertEqual(updated.values['publisher'], 'Shared Publisher')
+        self.assertIn('title', plan['conflicts'])
+        self.assertEqual(len(plan['conflicts']['title']), 2)
+        self.assertEqual(database.values['title'], 'Old')
+
     def test_comparison_does_not_modify_metadata_objects(self):
         database = FakeMetadata(title='Database Title')
         embedded = FakeMetadata(title='File Title')
