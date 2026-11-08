@@ -182,6 +182,7 @@ def apply_to_indexed_file_atomically(file_path: str, transform: Callable[[Any], 
             target.flush()
             target.seek(0)
             answer = transform(target)
+            target.truncate()
             target.flush()
             os.fsync(target.fileno())
         current = os.stat(path, follow_symlinks=False)
