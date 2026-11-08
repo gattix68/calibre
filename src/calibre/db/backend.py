@@ -771,6 +771,15 @@ class DB:
 
         SchemaUpgrade(self, self.library_path, self.field_metadata)
 
+        if self.is_indexed_library:
+            # Keep the Indexed-only mapping table outside Calibre's managed
+            # schema and migration chain. It references the normal books table.
+            from calibre.db.indexed_library_config import INDEXED_FILES_SCHEMA
+            with self.conn:
+                for statement in INDEXED_FILES_SCHEMA.split(';'):
+                    if statement.strip():
+                        self.conn.execute(statement)
+
         # Guarantee that the library_id is set
         self.library_id  # ruff: ignore[useless-expression]
 
@@ -808,9 +817,12 @@ class DB:
     # populate Calibre's managed 'data' table or expose Indexed Mode to the GUI.
     # The mode cannot be activated until all file mutation paths are protected.
     def _require_indexed_storage(self) -> None:
-        if self.prefs.get('library_storage_mode', 'managed') != 'indexed':
+        if not getattr(self, 'is_indexed_library', False):
             raise RuntimeError('External file registration requires an Indexed library')
-        raise NotImplementedError('Indexed library activation is not yet safe')
+        if not self.conn.get(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='indexed_files'", all=False
+        ):
+            raise RuntimeError('Indexed Library mapping table is not initialized')
 
     def register_indexed_format(self, book_id: int, fmt: str, file_path: str) -> None:
         """Record an external file location without copying or modifying it.
@@ -818,13 +830,32 @@ class DB:
         Reserved for the Indexed Mode integration milestone; currently disabled.
         """
         self._require_indexed_storage()
-        full_path = os.path.realpath(os.path.abspath(file_path))
-        if not os.path.isfile(full_path):
+        self._require_indexed_storage()
+        candidate = os.path.abspath(os.path.expanduser(file_path))
+        if os.path.islink(candidate):
+            raise OSError(f'Indexed source file must not be a symbolic link: {candidate}')
+        full_path = os.path.realpath(candidate)
+        if full_path != candidate or not os.path.isfile(full_path):
             raise FileNotFoundError(full_path)
+        from calibre.db.indexed_library_config import load_indexed_library_config
+        config = load_indexed_library_config(self.library_path)
+        if config is None:
+            raise RuntimeError('Indexed Library configuration is missing')
+        allowed = False
+        for root in config['source_roots']:
+            root_path = os.path.realpath(os.path.abspath(os.path.expanduser(root)))
+            try:
+                if os.path.commonpath((root_path, full_path)) == root_path:
+                    allowed = True
+                    break
+            except ValueError:
+                continue
+        if not allowed:
+            raise ValueError('Indexed source file is outside the configured source roots')
         fmt = fmt.strip().lstrip('.').upper()
         if not fmt or os.path.splitext(full_path)[1].lower() != '.' + fmt.lower():
             raise ValueError('Format must match the external file extension')
-        file_stat = os.stat(full_path)
+        file_stat = os.stat(full_path, follow_symlinks=False)
         with self.conn:
             self.conn.execute(
                 'INSERT INTO indexed_files(book_id, format, file_path, file_size, modified_time_ns) '
