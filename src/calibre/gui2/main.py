@@ -146,6 +146,12 @@ def init_qt(args):
     find_portable_library()
     if opts.with_library is not None:
         libpath = os.path.expanduser(opts.with_library)
+        from calibre.db.separated_storage import resolve_database_path
+        try:
+            resolve_database_path(libpath)
+        except (OSError, ValueError) as err:
+            prints(_('Library storage unavailable:'), str(err), file=sys.stderr)
+            raise AbortInit()
         if not os.path.exists(libpath):
             os.makedirs(libpath)
         if os.path.isdir(libpath):
@@ -201,8 +207,8 @@ def try_other_known_library_paths():
 
 def get_library_path(gui_runner):
     library_path = prefs['library_path']
-    from calibre.db.separated_storage import registry, resolve_database_path
-    if library_path and registry().get(os.path.abspath(library_path)) is not None:
+    from calibre.db.separated_storage import resolve_database_path
+    if library_path:
         try:
             resolve_database_path(library_path)
         except (OSError, ValueError):
@@ -414,6 +420,14 @@ class GuiRunner(QObject):
                 if repair_library(self.library_path):
                     db = LibraryDatabase(self.library_path)
         except Exception:
+            from calibre.db.separated_storage import registry
+            if registry().get(os.path.abspath(self.library_path)) is not None:
+                self.show_error(
+                    _('Library storage unavailable'),
+                    _('The existing separated library could not be opened. Reconnect storage and try again. No new library will be created.'),
+                    det_msg=traceback.format_exc(),
+                )
+                self.initialization_failed()
             self.show_error(
                 _('Bad database location'),
                 _('Bad database location %r. Will start with  a new, empty calibre library') % self.library_path,

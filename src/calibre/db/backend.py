@@ -12,8 +12,9 @@ import sys
 import tempfile
 import time
 import uuid
-from contextlib import closing, suppress
+from contextlib import closing, contextmanager, nullcontext, suppress
 from functools import partial
+from threading import local
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, cast, overload
 
 import apsw
@@ -641,7 +642,7 @@ def prepare_replacement_for(dest: str, dest_stat: os.stat_result, tpath: str) ->
     return True
 
 
-def write_stream_to_format_file(stream: IO[bytes], dest: str) -> int:
+def write_stream_to_format_file(stream: IO[bytes], dest: str, *, allow_in_place: bool = True) -> int:
     """Write the contents of stream to dest, returning the number of bytes
     written. If dest already exists, it is left unchanged if reading from
     stream or writing the data fails."""
@@ -662,6 +663,8 @@ def write_stream_to_format_file(stream: IO[bytes], dest: str) -> int:
         # mistaken for a book format, for example when restoring the database
         fd, tpath = tempfile.mkstemp(prefix='.calibre-format-', dir=os.path.dirname(dest))
     except OSError:
+        if not allow_in_place:
+            raise  # An outage must not truncate a previously good book.
         # Cannot create files in the book folder, fall back to overwriting the
         # existing file in place
         with open(dest, 'wb') as f:
@@ -673,6 +676,8 @@ def write_stream_to_format_file(stream: IO[bytes], dest: str) -> int:
             size = f.tell()
         if prepare_replacement_for(dest, dest_stat, tpath):
             replace_with_retry(tpath, dest)
+        elif not allow_in_place:
+            raise OSError('Cannot safely replace the existing separated-storage format')
         else:
             with open(tpath, 'rb') as src, open(dest, 'wb') as f:
                 shutil.copyfileobj(src, f)
@@ -713,6 +718,8 @@ class DB:
         temp_db_path: str | None = None,
     ) -> None:
         self.is_closed = False
+        self._storage_recovery_access = local()
+        self.book_files_changed = 0
         if isinstance(library_path, bytes):
             library_path = library_path.decode(filesystem_encoding)
         self.field_metadata = FieldMetadata()
@@ -765,7 +772,9 @@ class DB:
             shutil.copyfile(self.dbpath, pt.name)
             self.dbpath = pt.name
 
-        if not os.path.exists(os.path.dirname(self.dbpath)):
+        if self.separated_storage is not None:
+            os.stat(os.path.dirname(self.dbpath))  # Never recreate disconnected storage.
+        elif not os.path.exists(os.path.dirname(self.dbpath)):
             os.makedirs(os.path.dirname(self.dbpath))
 
         self._conn: Connection | None = None
@@ -775,7 +784,9 @@ class DB:
             from calibre.db.separated_storage import mark_initialized
             self.separated_storage = mark_initialized(self.library_path, self.separated_storage)
 
-        if not os.path.exists(self.library_path):
+        if self.separated_storage is not None:
+            self.check_storage()
+        elif not os.path.exists(self.library_path):
             os.makedirs(self.library_path)
         self.is_case_sensitive = is_case_sensitive(self.library_path)
         self.is_fat_filesystem = is_fat_filesystem(self.library_path)
@@ -1845,9 +1856,36 @@ class DB:
         from calibre.db.separated_storage import check_storage
         check_storage(self.library_path, self.separated_storage)
 
+    @contextmanager
+    def local_database_for_recovery(self):
+        # Rollback and cache reload must still work when the books root has
+        # disappeared. Never bypass guards in another thread or open a new DB.
+        from calibre.db.separated_storage import check_database_identity
+        if self.separated_storage is not None:
+            check_database_identity(self.separated_storage)
+        if self._conn is None:
+            raise RuntimeError('Recovery requires the existing local database connection')
+        os.stat(self.dbpath)
+        previous = getattr(self._storage_recovery_access, 'active', False)
+        self._storage_recovery_access.active = True
+        try:
+            yield
+        finally:
+            self._storage_recovery_access.active = previous
+
+    def storage_path_exists(self, path):
+        if self.separated_storage is None:
+            return os.path.exists(path)
+        try:
+            os.stat(path)
+        except FileNotFoundError:
+            return False
+        return True
+
     @property
     def conn(self) -> Connection:
-        self.check_storage()
+        if not getattr(self._storage_recovery_access, 'active', False):
+            self.check_storage()
         if self._conn is None:
             self._conn = Connection(self.dbpath)
             self.is_closed = False
@@ -2374,7 +2412,7 @@ class DB:
         path = os.path.join(self.library_path, book_path)
         fmt = ('.' + fmt.lower()) if fmt else ''
         fmt_path = os.path.join(path, fname + fmt)
-        if os.path.exists(fmt_path):
+        if self.storage_path_exists(fmt_path):
             return fmt_path
         if not fmt:
             return
@@ -2382,6 +2420,8 @@ class DB:
         try:
             candidates = os.scandir(path)
         except OSError:
+            if self.separated_storage is not None:
+                raise
             return
         with candidates:
             for x in candidates:
@@ -2491,6 +2531,8 @@ class DB:
                 if path:
                     paths.add(path)
                     removed_map[book_id].add(fmt.upper())
+                elif self.separated_storage is not None:
+                    raise FileNotFoundError(f'Registered format is unavailable: {fmt} for book {book_id}')
             if paths:
                 self.move_book_files_to_trash(book_id, paths, metadata_map[book_id])
         return removed_map
@@ -2600,6 +2642,7 @@ class DB:
             data = pixmap_to_data(data)
         elif callable(getattr(data, 'read', None)):
             data = data.read()  # ty: ignore[unresolved-attribute]
+        removed = False
         if data is None:
             if os.path.exists(path):
                 try:
@@ -2608,6 +2651,7 @@ class DB:
                     if iswindows:
                         time.sleep(0.2)
                     os.remove(path)
+                removed = True
         elif no_processing:
             with open(path, 'wb') as f:
                 f.write(data)  # ty: ignore[invalid-argument-type]
@@ -2620,6 +2664,8 @@ class DB:
                 if iswindows:
                     time.sleep(0.2)
                 save_cover_data_to(data, path)  # ty: ignore[no-matching-overload]
+        if data is not None or removed:
+            self.book_files_changed += 1
 
     def copy_format_to(
         self,
@@ -2770,7 +2816,7 @@ class DB:
             replace_with_retry(stream, dest)
             size = os.path.getsize(dest)
         elif not getattr(stream, 'name', False) or not samefile(dest, stream.name):
-            size = write_stream_to_format_file(stream, dest)
+            size = write_stream_to_format_file(stream, dest, allow_in_place=self.separated_storage is None)
             if mtime is not None:
                 os.utime(dest, (mtime, mtime))
         elif os.path.exists(dest):
@@ -2792,6 +2838,10 @@ class DB:
         current_path = cast('str', path_field.for_book(book_id, default_value=''))
         path = self.construct_path_name(book_id, title, author)
         formats = cast('tuple[str, ...]', formats_field.for_book(book_id, default_value=()))
+        if self.separated_storage is not None and current_path and formats:
+            source = os.path.join(self.library_path, *current_path.split('/'))
+            if not self.storage_path_exists(source):
+                raise FileNotFoundError(f'Registered book directory is unavailable: {source}')
         try:
             extlen = max(len(fmt) for fmt in formats) + 1
         except ValueError:
@@ -2816,13 +2866,17 @@ class DB:
                             rename_map[current_fmt_path] = new_fmt_path
                 if rename_map:
                     rename_files(rename_map)
+                    self.book_files_changed += 1
             return changed
 
         def update_paths_in_db() -> None:
-            with self.conn:
-                for fmt in formats:
-                    formats_field.table.set_fname(book_id, fmt, fname, self)
-                cast('PathTable', path_field.table).set_path(book_id, path, self)
+            # Once a remote move succeeded, persist its mapping locally even
+            # if the NAS disappears before the next marker probe.
+            with self.local_database_for_recovery() if self.separated_storage is not None else nullcontext():
+                with self.conn:
+                    for fmt in formats:
+                        formats_field.table.set_fname(book_id, fmt, fname, self)
+                    cast('PathTable', path_field.table).set_path(book_id, path, self)
 
         if not current_path:
             update_paths_in_db()
@@ -2855,6 +2909,7 @@ class DB:
                     if oldseg.lower() == newseg.lower() and oldseg != newseg:
                         try:
                             os.replace(os.path.join(curpath, oldseg), os.path.join(curpath, newseg))
+                            self.book_files_changed += 1
                         except OSError:
                             break  # Fail silently since nothing catastrophic has happened
                     curpath = os.path.join(curpath, newseg)
@@ -2880,13 +2935,14 @@ class DB:
                 return dest_path
             return os.path.join(os.path.dirname(dest_path), fname + '.' + fmt)
 
-        if os.path.exists(spath):
+        if self.storage_path_exists(spath):
             copy_tree(
                 os.path.abspath(spath),
                 tpath,
                 delete_source=True,
                 transform_destination_filename=transform_format_filenames,
             )
+            self.book_files_changed += 1
             parent = os.path.dirname(spath)
             with suppress(OSError):
                 remove_dir_if_empty(parent, ignore_metadata_caches=True)
@@ -3302,9 +3358,20 @@ class DB:
         removed, failures = [], {}
         parent_paths: set[str] = set()
         for book_id, path in path_map.items():
+            if self.separated_storage is not None:
+                try:
+                    available = path and self.storage_path_exists(os.path.join(self.library_path, path))
+                    expected_files = self.conn.get(
+                        'SELECT has_cover OR EXISTS(SELECT 1 FROM data WHERE book=books.id) FROM books WHERE id=?',
+                        (book_id,), all=False)
+                    if not available and expected_files:
+                        raise FileNotFoundError(f'Registered book directory is unavailable: {path}')
+                except OSError:
+                    failures[book_id] = traceback.format_exc()
+                    continue
             if path:
                 path = os.path.abspath(os.path.join(self.library_path, path))
-                if os.path.exists(path) and self.is_deletable(path):
+                if self.storage_path_exists(path) and self.is_deletable(path):
                     try:
                         self.rmtree(path) if permanent else self.move_book_to_trash(book_id, path)
                     except SourceDeletionFailed:

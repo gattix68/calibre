@@ -202,3 +202,93 @@ zero failures/errors and one APSW-shell skip. The complete database suite ran
 171 tests in 90.201 seconds with zero failures/errors and the same three runtime/
 platform skips described above. Modified Python files parsed successfully and
 `git diff --check` passed. No production library or NAS share was accessed.
+
+## NAS disconnection and recovery milestone
+
+User-reported SMB integration passed PDF, EPUB and CBZ import, metadata updates,
+and restart persistence before this milestone. Outage validation here uses
+only disposable libraries and injected filesystem failures. It never accesses
+those existing GUI test libraries or changes a NAS, DAS, SMB connection, mount,
+or production service.
+
+### Safeguards added
+
+- Marker discovery opens the marker directly instead of using an existence
+  probe that can hide permission, stale-handle, or I/O errors. A broken marker
+  symlink also fails closed. GUI startup validates configured paths even when
+  the local registry has not yet learned the identity. An outage during backend
+  startup aborts a known separated library rather than offering an empty-library
+  fallback. The command-line library selector validates before making folders.
+- Marker completion opens only an existing file: disconnection after validation
+  cannot recreate its marker in an empty underlying mountpoint. Direct writes
+  remain in use; no hard-link or replacement-rename requirement is restored.
+- Registered book/format paths use strict filesystem probes. Unavailable paths
+  cannot be mistaken for successful deletion. A missing book folder containing
+  registered formats or a cover leaves its database record intact and reports
+  an error. Explicit database-only format removal remains available for repair.
+- Separated metadata updates use local SQLite/notes transactions. If a title or
+  author move fails before a filesystem change completes, database values and
+  cached metadata are restored, including author notes and pending OPF work.
+  A narrowly scoped, thread-local recovery context reloads the already-open
+  local database even while the NAS marker is unavailable. It neither opens a
+  replacement database nor disables storage checks for other threads.
+- Completed book moves and cover writes retain their corresponding local paths
+  and flags if the next NAS check fails. Bulk operations retain successful
+  mappings and report partial failure instead of rolling those mappings back
+  and stranding files that were already moved.
+- Replacing an existing format in a separated library must use a safe staging
+  and replacement operation. Permission/I/O errors do not fall back to
+  truncating the original file. If the filesystem cannot safely replace that
+  file, the operation fails and the original stays intact. Ordinary libraries
+  retain their existing replacement policy.
+- Transient storage failures retain pending OPF backups and do not kill the
+  metadata backup worker. Failed page-count reads do not persist a false failed
+  count; pending scan work remains for a subsequent scan or restart.
+
+### Recovery expectations and limits
+
+When the same path and storage identity become readable again, ordinary API
+operations can resume without reopening the library. A clean close/reopen also
+retains books, formats, covers and metadata. A different identity is rejected;
+no automatic path guessing or substitution of a permanent mount takes place.
+
+Tests inject missing files, `EACCES`, `EPERM`, `ESTALE`, `ENOTCONN`, and `EIO`,
+including cases where the marker remains readable but individual book paths
+fail. They cover startup, import/format replacement, metadata and author-note
+rollback, deletion, interrupted initialization, background work, successful
+moves followed by disconnection, partial bulk moves, close/reopen, and database
+integrity after recovery.
+
+These checks cannot turn remote filesystem operations plus local SQLite into
+a distributed atomic transaction. An interrupted move/delete may leave partial
+filesystem work requiring inspection; a partially completed bulk request may
+retain metadata changes for completed work. A new import that loses storage
+after its book record was created may retain an incomplete record for retry.
+Interrupted direct cover/OPF/marker writes are not guaranteed atomic. Malformed
+or mismatched markers fail closed rather than initialize a replacement database.
+No filesystem call timeout is imposed: an OS/GVfs call can still block until
+its own timeout. A changed GVfs path must be reselected; recovery does not remap
+shares automatically. Actual outage behavior on Linux/macOS/Windows remains
+subject to each filesystem/client; automated tests simulate failures and are
+not production outage testing.
+
+Milestone verification on 2026-11-08 using the existing `/opt/calibre` runtime
+with this checkout's source: all **24 outage/recovery tests passed**. The final
+complete `calibre.db.tests` run executed **195 tests in 112.418 seconds**, with
+zero failures/errors and three skips (one Windows-only case and two SQL rebuild
+cases requiring the unavailable APSW shell). Read-only SQLite integrity checking
+also passed after simulated outage/recovery. `git diff --check` and parsing of
+all changed Python files passed. Initial regressions reproduced lost book
+records, truncated replacement bytes, and prematurely committed title metadata;
+the final suite verifies those cases retain the original data.
+
+Run the targeted outage suite with:
+
+```sh
+CALIBRE_DEVELOP_FROM="$PWD/src" QT_QPA_PLATFORM=offscreen \
+  /opt/calibre/calibre-debug -c 'import unittest; from calibre.db.tests import test_separated_storage_recovery as tests; unittest.main(tests)'
+```
+
+Full-suite validation used a fresh disposable Calibre configuration, cache, and
+temporary-directory root. Existing local/NAS GUI test libraries and production
+storage/services were neither inspected nor modified for this milestone.

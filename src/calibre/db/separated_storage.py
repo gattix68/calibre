@@ -24,10 +24,15 @@ def storage_identity(library_path):
     root = os.path.abspath(library_path)
     known = registry().get(root)
     marker = os.path.join(root, CONFIG_NAME)
-    if known is None and not os.path.lexists(marker):
+    # exists()/lexists() swallow EACCES, ESTALE and similar failures. Probe
+    # directly so an inaccessible marker cannot become a new ordinary library.
+    try:
+        with open(marker, encoding='utf-8') as stream:
+            config = json.load(stream)
+    except FileNotFoundError:
+        if known is not None or os.path.lexists(marker):
+            raise
         return None
-    with open(marker, encoding='utf-8') as stream:
-        config = json.load(stream)
     if known is not None and config != known:
         raise OSError(f'Separated books storage has changed or is unavailable: {root}')
     return config
@@ -66,7 +71,12 @@ def mark_initialized(library_path, config):
     # GVfs SMB can support ordinary writes while rejecting replacement renames.
     # A failed/interrupted write leaves an invalid or mismatched marker, which
     # storage_identity() rejects; never fall back to a new empty database.
-    with open(os.path.join(library_path, CONFIG_NAME), 'w', encoding='utf-8') as stream:
+    def existing_marker_only(path, flags):
+        # Do not recreate a marker on an empty mountpoint if storage vanishes
+        # after validation. O_WRONLY remains compatible with GVfs SMB.
+        return os.open(path, flags & ~os.O_CREAT)
+
+    with open(os.path.join(library_path, CONFIG_NAME), 'w', encoding='utf-8', opener=existing_marker_only) as stream:
         json.dump(config, stream, indent=2)
         stream.write('\n')
         stream.flush()

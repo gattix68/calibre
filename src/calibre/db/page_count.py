@@ -124,6 +124,8 @@ class MaintainPageCounts(Thread):
         try:
             pages = self.count_book(db, book_id, server)
         except Exception as e:
+            if isinstance(e, OSError) and db.backend.separated_storage is not None:
+                return None  # Transient storage loss is not a failed page count.
             import traceback
 
             traceback.print_exc()
@@ -184,6 +186,8 @@ class MaintainPageCounts(Thread):
                     cleanups.append(fmt_file)
                     fmt_size = os.path.getsize(fmt_file)
                 except Exception as e:
+                    if isinstance(e, OSError) and db.backend.separated_storage is not None:
+                        raise
                     import traceback
 
                     traceback.print_exc()

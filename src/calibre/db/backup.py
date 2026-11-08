@@ -68,6 +68,11 @@ class MetadataBackup(Thread):
                 self.do_one()
             except Abort:
                 break
+            except (OSError, ValueError):
+                if self.db.backend.separated_storage is None:
+                    raise
+                # Storage can disappear after a successful write, before its
+                # dirtied flag is cleared. Keep the worker alive for recovery.
 
     def do_one(self) -> None:
         self.check_dirtied_annotations += 1

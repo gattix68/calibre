@@ -13,7 +13,7 @@ import weakref
 from collections import defaultdict
 from collections.abc import Callable, Collection, Container, Generator, Iterable, Iterator, Mapping, MutableSet, Sequence
 from collections.abc import Set as AbstractSet
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime
 from functools import partial, wraps
 from io import DEFAULT_BUFFER_SIZE, BytesIO
@@ -159,6 +159,41 @@ def wrap_simple[**P, R](lock: RWLockWrapper, func: Callable[P, R], check_storage
             return func(*args, **kwargs)
 
     return call_func_with_lock
+
+
+def separated_metadata_transaction(func):
+    @wraps(func)
+    def call(self, *args, **kwargs):
+        if self.backend.separated_storage is None:
+            return func(self, *args, **kwargs)
+        conn = self.backend.conn
+        dirty, sequence = self.dirtied_cache.copy(), self.dirtied_sequence
+        files_changed = self.backend.book_files_changed
+        failure = None
+        try:
+            with self.backend.notes.file_transaction(), conn:
+                try:
+                    result = func(self, *args, **kwargs)
+                except Exception as err:
+                    if self.backend.book_files_changed == files_changed:
+                        raise
+                    # A prior book's move already succeeded. Rolling back its
+                    # path would strand the files. Keep successful mappings and
+                    # report partial failure, as normal bulk management does.
+                    failure = err, err.__traceback__
+        except Exception:
+            # conn rolls back directly even if the remote marker can no longer
+            # be read. Reload only the local database, under the API write lock.
+            with self.backend.local_database_for_recovery():
+                self._reload_from_db()
+            self.dirtied_cache, self.dirtied_sequence = dirty, sequence
+            raise
+        if failure is not None:
+            with self.backend.local_database_for_recovery():
+                self._reload_from_db()
+            raise failure[0].with_traceback(failure[1])
+        return result
+    return call
 
 
 def run_import_plugins(path_or_stream: str | IO[bytes], fmt: str) -> str:
@@ -2187,6 +2222,7 @@ class Cache:
     _check_dirtied_annotations = check_dirtied_annotations
 
     @quiet_write_api
+    @separated_metadata_transaction
     def set_field(self, name: str, book_id_to_val_map: Mapping[int, object], allow_case_change: bool = True, do_path_update: bool = True) -> set[int]:
         """
         Set the values of the field specified by ``name``. Returns the set of all book ids that were affected by the change.
@@ -2413,7 +2449,9 @@ class Cache:
                 # try to write the opf, because it will go to the wrong folder.
                 if self._get_book_path(book_id, unsafe=True):
                     mi = self._metadata_as_object_for_dump(book_id)
-            except Exception:
+            except Exception as err:
+                if self.backend.separated_storage is not None and isinstance(err, OSError):
+                    raise  # Retain pending backup work through a transient outage.
                 # This almost certainly means that the book has been deleted while
                 # the backup operation sat in the queue.
                 traceback.print_exc()
@@ -2525,7 +2563,10 @@ class Cache:
             self.backend.set_cover(book_id, path, data)
         for cc in self.cover_caches:
             cc.invalidate(book_id_data_map)
-        return self._set_field('cover', {book_id: (0 if data is None else 1) for book_id, data in book_id_data_map.items()})
+        # The cover writes already succeeded; preserve their flags locally
+        # even if storage vanishes before the next marker check.
+        with self.backend.local_database_for_recovery() if self.backend.separated_storage is not None else nullcontext():
+            return self._set_field('cover', {book_id: (0 if data is None else 1) for book_id, data in book_id_data_map.items()})
 
     _set_cover = set_cover
 
@@ -2544,6 +2585,7 @@ class Cache:
     _remove_cover_cache = remove_cover_cache
 
     @quiet_write_api
+    @separated_metadata_transaction
     def set_metadata(
         self,
         book_id: int,
@@ -2599,7 +2641,9 @@ class Cache:
         def protected_set_field(name: str, val: object) -> None:
             try:
                 set_field(name, val)
-            except Exception:
+            except Exception as err:
+                if self.backend.separated_storage is not None and isinstance(err, OSError):
+                    raise
                 if ignore_errors:
                     traceback.print_exc()
                 else:
@@ -2613,7 +2657,9 @@ class Cache:
                     cdata = f.read() or None
             if cdata is not None:
                 self._set_cover({book_id: cdata})
-        except Exception:
+        except Exception as err:
+            if self.backend.separated_storage is not None and isinstance(err, OSError):
+                raise
             if ignore_errors:
                 traceback.print_exc()
             else:
