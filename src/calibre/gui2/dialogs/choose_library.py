@@ -5,7 +5,7 @@ import errno
 import os
 from threading import Event, Thread
 
-from qt.core import QDialog, Qt, QTimer, pyqtSignal
+from qt.core import QCheckBox, QDialog, QHBoxLayout, QLineEdit, QPushButton, Qt, QTimer, QWidget, pyqtSignal
 
 from calibre import force_unicode, patheq
 from calibre.constants import filesystem_encoding, get_portable_base, iswindows
@@ -59,9 +59,34 @@ class ChooseLibrary(QDialog, Ui_Dialog):
         self.browse_button.clicked.connect(self.choose_loc)
         self.empty_library.toggled.connect(self.empty_library_toggled)
         self.copy_structure.setEnabled(False)
+        self.separate_storage = QCheckBox(_('Store the database locally, separate from the managed books'), self)
+        self.database_location = QLineEdit(self)
+        self.database_location.setPlaceholderText(_('Local database folder (new, empty folder)'))
+        self.database_browse = QPushButton(_('Browse…'), self)
+        self.database_browse.clicked.connect(self.choose_database_location)
+        self.database_controls = QWidget(self)
+        row = QHBoxLayout(self.database_controls)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(self.database_location)
+        row.addWidget(self.database_browse)
+        self.gridLayout.addWidget(self.separate_storage, 10, 0, 1, 4)
+        self.gridLayout.addWidget(self.database_controls, 11, 0, 1, 4)
+        self.gridLayout.removeWidget(self.buttonBox)
+        self.gridLayout.addWidget(self.buttonBox, 12, 2, 1, 2)
+        self.separate_storage.setEnabled(self.empty_library.isChecked())
+        self.database_controls.setEnabled(False)
+        self.separate_storage.toggled.connect(self.database_controls.setEnabled)
+        self.separate_storage.setToolTip(_('The library location above holds books and covers. Choose a local disk for SQLite. Both folders must remain available.'))
+
+    def choose_database_location(self):
+        loc = choose_dir(self, 'separated database location', _('Choose local database folder'))
+        if loc:
+            self.database_location.setText(loc)
 
     def empty_library_toggled(self, to_what) -> None:
         self.copy_structure.setEnabled(to_what)
+        self.separate_storage.setEnabled(to_what)
+        self.database_controls.setEnabled(to_what and self.separate_storage.isChecked())
 
     def choose_loc(self, *args) -> None:
         base = get_portable_base()
@@ -192,6 +217,18 @@ class ChooseLibrary(QDialog, Ui_Dialog):
                 return error_dialog(self, _('Bad location'), _('%s is not an existing folder') % loc, show=True)
         if not self.check_action(action, loc):
             return
+        if action == 'new' and self.separate_storage.isChecked():
+            from calibre.db.separated_storage import configure_separated_storage
+            try:
+                database_location = self.database_location.text().strip()
+                if not database_location or not os.path.isabs(database_location):
+                    raise ValueError(_('Choose an absolute local database folder'))
+                os.makedirs(database_location, exist_ok=True)
+                if os.listdir(database_location):
+                    raise ValueError(_('The database folder must be empty'))
+                configure_separated_storage(loc, database_location)
+            except (OSError, ValueError) as err:
+                return error_dialog(self, _('Cannot create separated library'), str(err), show=True)
         self.location.save_history()
         self.perform_action(action, loc)
         QDialog.accept(self)  # Must be after perform action otherwise the progress dialog is not updated on windows

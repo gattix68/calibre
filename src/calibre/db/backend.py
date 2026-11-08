@@ -731,9 +731,13 @@ class DB:
         # Resolve the database path independently of the managed books root.
         # Libraries without a separated-storage marker retain Calibre's
         # traditional metadata.db location.
-        from calibre.db.separated_storage import resolve_database_path
+        from calibre.db.separated_storage import resolve_database_path, storage_identity
         self.dbpath = resolve_database_path(self.library_path)
-        self.dbpath = os.environ.get('CALIBRE_OVERRIDE_DATABASE_PATH', self.dbpath)
+        self.separated_storage = storage_identity(self.library_path)
+        override = os.environ.get('CALIBRE_OVERRIDE_DATABASE_PATH')
+        if self.separated_storage is not None and override and os.path.abspath(override) != self.dbpath:
+            raise ValueError('CALIBRE_OVERRIDE_DATABASE_PATH conflicts with separated storage')
+        self.dbpath = override or self.dbpath
 
         if iswindows and len(self.library_path) + 4 * self.PATH_LIMIT + 10 > 259:
             raise ValueError(
@@ -767,6 +771,9 @@ class DB:
         self._conn: Connection | None = None
         if self.user_version == 0:
             self.initialize_database()
+        if self.separated_storage is not None and temp_db_path is None and not read_only:
+            from calibre.db.separated_storage import mark_initialized
+            self.separated_storage = mark_initialized(self.library_path, self.separated_storage)
 
         if not os.path.exists(self.library_path):
             os.makedirs(self.library_path)
@@ -1834,8 +1841,13 @@ class DB:
     def get_connection(self) -> Connection:
         return self.conn
 
+    def check_storage(self):
+        from calibre.db.separated_storage import check_storage
+        check_storage(self.library_path, self.separated_storage)
+
     @property
     def conn(self) -> Connection:
+        self.check_storage()
         if self._conn is None:
             self._conn = Connection(self.dbpath)
             self.is_closed = False
@@ -2083,8 +2095,13 @@ class DB:
 
     def close(self, force: bool = True, unload_formatter_functions: bool = True) -> None:
         if getattr(self, '_conn', None) is not None:
-            if self.prefs['expire_old_trash_after'] == 0:
-                self.expire_old_trash(0)
+            try:
+                self.check_storage()
+            except (OSError, ValueError):
+                pass  # Closing must remain possible after a mount disappears.
+            else:
+                if self.prefs['expire_old_trash_after'] == 0:
+                    self.expire_old_trash(0)
             if unload_formatter_functions:
                 try:
                     unload_user_template_functions(self.library_id)
@@ -2188,6 +2205,7 @@ class DB:
         return path and not self.normpath(self.library_path).startswith(self.normpath(path))
 
     def rmtree(self, path: str) -> None:
+        self.check_storage()
         if self.is_deletable(path):
             rmtree_with_retry(path)
 
@@ -2252,7 +2270,8 @@ class DB:
 
     @classmethod
     def exists_at(cls, path: str | None) -> str | bool | None:
-        return path and os.path.exists(os.path.join(path, 'metadata.db'))
+        from calibre.db.separated_storage import library_exists
+        return library_exists(path)
 
     @property
     def library_id(self) -> str:
@@ -2336,6 +2355,7 @@ class DB:
         # Indexed libraries store the authoritative absolute path for each
         # format. Never fall back to Calibre's managed-library naming logic:
         # doing so could rename or move a file that belongs to the user.
+        self.check_storage()
         if getattr(self, 'is_indexed_library', False):
             row = self.conn.execute(
                 'SELECT file_path FROM indexed_files WHERE book_id=? AND format=? COLLATE NOCASE',
@@ -2381,6 +2401,7 @@ class DB:
                     return fmt_path
 
     def cover_abspath(self, book_id: int, path: str) -> str | None:
+        self.check_storage()
         path = os.path.join(self.library_path, path)
         fmt_path = os.path.join(path, COVER_FILE_NAME)
         if os.path.exists(fmt_path):
@@ -2391,6 +2412,7 @@ class DB:
         return is_path_inside(book_path, path, case_sensitive=self.is_case_sensitive)
 
     def apply_to_format[T](self, book_id: int, path: str, fname: str, fmt: str, func: Callable[[BinaryIO], T], missing_value: T | None = None) -> T | None:
+        self.check_storage()
         path = self.format_abspath(book_id, fmt, fname, path)  # ty: ignore[invalid-assignment]
         if path is None:
             return missing_value
@@ -2423,6 +2445,7 @@ class DB:
         return sha.hexdigest()
 
     def format_metadata(self, book_id: int, fmt: str, fname: str, path: str) -> FormatMetadata:
+        self.check_storage()
         path = self.format_abspath(book_id, fmt, fname, path)  # ty: ignore[invalid-assignment]
         ans: FormatMetadata = {}
         if path is not None:
@@ -2433,13 +2456,16 @@ class DB:
         return ans
 
     def has_format(self, book_id: int, fmt: str, fname: str, path: str) -> bool:
+        self.check_storage()
         return self.format_abspath(book_id, fmt, fname, path) is not None
 
     def is_format_accessible(self, book_id: int, fmt: str, fname: str, path: str) -> str | bool | None:
+        self.check_storage()
         fpath = self.format_abspath(book_id, fmt, fname, path)
         return fpath and os.access(fpath, os.R_OK | os.W_OK)
 
     def rename_format_file(self, book_id: int, src_fname: str, src_fmt: str, dest_fname: str, dest_fmt: str, path: str) -> int:
+        self.check_storage()
         if getattr(self, 'is_indexed_library', False):
             raise PermissionError('Renaming format files is not supported in Indexed Library mode; source filenames are preserved')
         src_path = self.format_abspath(book_id, src_fmt, src_fname, path)
@@ -2452,6 +2478,7 @@ class DB:
         return os.path.getsize(dest_path)
 
     def remove_formats(self, remove_map: Mapping[int, Iterable[tuple[str, str, str]]], metadata_map: Mapping[int, JSONDict]) -> dict[int, set[str]]:
+        self.check_storage()
         if getattr(self, 'is_indexed_library', False):
             raise PermissionError('Removing format files is not supported yet in Indexed Library mode; source files are preserved')
         self.ensure_trash_dir()
@@ -2483,6 +2510,7 @@ class DB:
         use_hardlink: bool = False,
         report_file_size: Callable[[int], object] | None = None,
     ) -> bool:
+        self.check_storage()
         path = os.path.abspath(os.path.join(self.library_path, path, COVER_FILE_NAME))
         if windows_atomic_move is not None:
             if not isinstance(dest, (str, bytes)):
@@ -2514,6 +2542,7 @@ class DB:
         return False
 
     def cover_or_cache(self, path: str, timestamp: float, as_what: str = 'bytes') -> tuple[bool, bytes | Image | None, float | None]:
+        self.check_storage()
         path = os.path.abspath(os.path.join(self.library_path, path, COVER_FILE_NAME))
         try:
             stat = os.stat(path)
@@ -2540,6 +2569,7 @@ class DB:
         return stat.st_mtime
 
     def compress_covers(self, path_map: Mapping[int, str], jpeg_quality: int, progress_callback: Callable[[int, int, int | str], object] | None) -> None:
+        self.check_storage()
         cpath_map: dict[int, tuple[str, int]] = {}
         if not progress_callback:
 
@@ -2559,6 +2589,7 @@ class DB:
         compress_covers(cpath_map, jpeg_quality, progress_callback)
 
     def set_cover(self, book_id: int, path: str, data: bytes | QImage | QPixmap | IO[bytes] | None, no_processing: bool = False) -> None:
+        self.check_storage()
         path = os.path.abspath(os.path.join(self.library_path, path))
         if not os.path.exists(path):
             os.makedirs(path)
@@ -2601,6 +2632,7 @@ class DB:
         use_hardlink: bool = False,
         report_file_size: Callable[[int], object] | None = None,
     ) -> bool:
+        self.check_storage()
         path = self.format_abspath(book_id, fmt, fname, path)  # ty: ignore[invalid-assignment]
         if path is None:
             return False
@@ -2666,6 +2698,7 @@ class DB:
         current_name: str | None,
         mtime: float | None = None,
     ) -> tuple[int, str]:
+        self.check_storage()
         if getattr(self, 'is_indexed_library', False):
             # Updating an existing format in Indexed Mode means replacing its
             # contents at the registered location, never constructing a
@@ -2752,6 +2785,7 @@ class DB:
         # organization. A title/author edit must never rename a source file or
         # move its containing directory. The indexed_files mapping remains the
         # authoritative location for every format.
+        self.check_storage()
         if getattr(self, 'is_indexed_library', False):
             return
 
@@ -2861,6 +2895,7 @@ class DB:
         update_paths_in_db()
 
     def copy_extra_file_to(self, book_id: int, book_path: str, relpath: str, stream_or_path: str | SupportsWrite[bytes]) -> None:
+        self.check_storage()
         full_book_path = os.path.abspath(os.path.join(self.library_path, book_path))
         try:
             extra_file_path = path_from_root(full_book_path, relpath, case_sensitive=self.is_case_sensitive)
@@ -2884,6 +2919,7 @@ class DB:
     def iter_extra_files(
         self, book_id: int, book_path: str, formats_field: FormatsField, yield_paths: bool = False, pattern: str = ''
     ) -> Iterator[tuple[str, str | BinaryIO, os.stat_result]]:
+        self.check_storage()
         known_files = {COVER_FILE_NAME, METADATA_FILE_NAME}
         if '/' not in pattern:
             for fmt in cast('tuple[str, ...]', formats_field.for_book(book_id, default_value=())):
@@ -2933,6 +2969,7 @@ class DB:
                             yield relpath, src, stat_result
 
     def remove_extra_files(self, book_path: str, relpaths: Iterable[str], permanent: bool) -> dict[str, Exception | None]:
+        self.check_storage()
         bookdir = os.path.join(self.library_path, book_path)
         errors: dict[str, Exception | None] = {}
         for relpath in relpaths:
@@ -2964,6 +3001,7 @@ class DB:
         return errors
 
     def rename_extra_file(self, relpath: str, newrelpath: str, book_path: str, replace: bool = True) -> bool:
+        self.check_storage()
         bookdir = os.path.join(self.library_path, book_path)
         try:
             src = path_from_root(bookdir, relpath, case_sensitive=self.is_case_sensitive)
@@ -2983,6 +3021,7 @@ class DB:
         return True
 
     def add_extra_file(self, relpath: str, stream: str | IO[bytes], book_path: str, replace: bool = True, auto_rename: bool = False) -> str | None:
+        self.check_storage()
         bookdir = os.path.join(self.library_path, book_path)
         try:
             dest = path_from_root(bookdir, relpath, case_sensitive=self.is_case_sensitive)
@@ -3015,6 +3054,7 @@ class DB:
         return os.path.relpath(dest, bookdir).replace(os.sep, '/')
 
     def write_backup(self, path: str, raw: bytes) -> None:
+        self.check_storage()
         path = os.path.abspath(os.path.join(self.library_path, path, METADATA_FILE_NAME))
         try:
             with open(path, 'wb') as f:
@@ -3034,6 +3074,7 @@ class DB:
                 f.write(raw)
 
     def read_backup(self, path: str) -> bytes:
+        self.check_storage()
         path = os.path.abspath(os.path.join(self.library_path, path, METADATA_FILE_NAME))
         with open(path, 'rb') as f:
             return f.read()
@@ -3043,12 +3084,14 @@ class DB:
         return os.path.abspath(os.path.join(self.library_path, TRASH_DIR_NAME))
 
     def clear_trash_dir(self) -> None:
+        self.check_storage()
         tdir = self.trash_dir
         if os.path.exists(tdir):
             self.rmtree(tdir)
             self.ensure_trash_dir()
 
     def ensure_trash_dir(self, during_init: bool = False) -> None:
+        self.check_storage()
         tdir = self.trash_dir
         os.makedirs(os.path.join(tdir, 'b'), exist_ok=True)
         os.makedirs(os.path.join(tdir, 'f'), exist_ok=True)
@@ -3060,12 +3103,14 @@ class DB:
             self.expire_old_trash(during_init=during_init)
 
     def delete_trash_entry(self, book_id: int, category: str) -> None:
+        self.check_storage()
         self.ensure_trash_dir()
         path = os.path.join(self.trash_dir, category, str(book_id))
         if os.path.exists(path):
             self.rmtree(path)
 
     def expire_old_trash(self, expire_age_in_seconds: float = -1, during_init: bool = False) -> None:
+        self.check_storage()
         if expire_age_in_seconds < 0:
             expire_age_in_seconds = max(1 * 24 * 3600, float(cast('float', self.prefs['expire_old_trash_after'])))
         self.last_expired_trash_at = now = time.time()
@@ -3092,6 +3137,7 @@ class DB:
                 traceback.print_exc()
 
     def move_book_to_trash(self, book_id: int, book_dir_abspath: str) -> None:
+        self.check_storage()
         dest = os.path.join(self.trash_dir, 'b', str(book_id))
         if os.path.exists(dest):
             rmtree_with_retry(dest)
@@ -3112,6 +3158,7 @@ class DB:
             raise
 
     def move_book_files_to_trash(self, book_id: int, format_abspaths: Iterable[str], metadata: JSONDict) -> None:
+        self.check_storage()
         dest = os.path.join(self.trash_dir, 'f', str(book_id))
         if not os.path.exists(dest):
             os.makedirs(dest)
@@ -3141,6 +3188,7 @@ class DB:
         return mi, annotations, formats
 
     def move_book_from_trash(self, book_id: int, path: str) -> None:
+        self.check_storage()
         bdir = os.path.join(self.trash_dir, 'b', str(book_id))
         if not os.path.isdir(bdir):
             raise ValueError(f'The book {book_id} not present in the trash folder')
@@ -3148,6 +3196,7 @@ class DB:
         copy_tree(bdir, dest, delete_source=True)
 
     def copy_book_from_trash(self, book_id: int, dest: str) -> None:
+        self.check_storage()
         bdir = os.path.join(self.trash_dir, 'b', str(book_id))
         if not os.path.isdir(bdir):
             raise ValueError(f'The book {book_id} not present in the trash folder')
@@ -3163,11 +3212,13 @@ class DB:
         return path
 
     def remove_trash_formats_dir_if_empty(self, book_id: int) -> None:
+        self.check_storage()
         bdir = os.path.join(self.trash_dir, 'f', str(book_id))
         if os.path.isdir(bdir) and len(os.listdir(bdir)) <= 1:  # don't count metadata.json
             self.rmtree(bdir)
 
     def list_trash_entries(self) -> tuple[list[TrashEntry], list[TrashEntry]]:
+        self.check_storage()
         from calibre.ebooks.metadata.opf2 import OPF
 
         self.ensure_trash_dir()
@@ -3234,6 +3285,7 @@ class DB:
         deleted or moved is left in the database. Returns a map of book id to
         error details for such books.
         """
+        self.check_storage()
         if getattr(self, 'is_indexed_library', False):
             # Removing a book from Calibre must never delete or relocate its
             # externally managed source directory. The indexed_files foreign
@@ -3650,6 +3702,9 @@ class DB:
         items = set(os.listdir(self.library_path))
         paths = set(all_paths)
         paths.update({'metadata.db', 'full-text-search.db', 'metadata_db_prefs_backup.json', NOTES_DIR_NAME})
+        if self.separated_storage is not None:
+            from calibre.db.separated_storage import CONFIG_NAME
+            paths.update({CONFIG_NAME, TRASH_DIR_NAME})
         path_map = {x: x for x in paths}
         if not self.is_case_sensitive:
             for x in items:
@@ -3666,6 +3721,10 @@ class DB:
         progress: Callable[[str, int, int], object] = (lambda item_name, item_count, total: None),
         abort: Event | None = None,
     ) -> None:
+        self.check_storage()
+        if self.separated_storage is not None:
+            from calibre.db.separated_storage import validate_directories
+            validate_directories(newloc, self.separated_storage['database_directory'])
         if not os.path.exists(newloc):
             os.makedirs(newloc)
         old_dirs, old_files = set(), set()
@@ -3692,6 +3751,10 @@ class DB:
             progress(x, i + 1, total)
 
         dbpath = os.path.join(newloc, os.path.basename(self.dbpath))
+        if self.separated_storage is not None:
+            from calibre.db.separated_storage import registry
+            dbpath = self.dbpath
+            registry()[os.path.abspath(newloc)] = self.separated_storage
         odir = self.library_path
         self.conn.close()
         self.library_path, self.dbpath = newloc, dbpath

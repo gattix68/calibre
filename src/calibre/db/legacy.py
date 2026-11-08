@@ -290,7 +290,8 @@ class LibraryDatabase:
 
     @classmethod
     def exists_at(cls, path: str | None) -> str | bool | None:
-        return path and os.path.exists(os.path.join(path, 'metadata.db'))
+        from calibre.db.separated_storage import library_exists
+        return library_exists(path)
 
     def __init__(
         self,

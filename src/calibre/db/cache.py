@@ -142,16 +142,20 @@ def quiet_write_api[T: types.FunctionType](f: T) -> T:
     return f
 
 
-def wrap_simple[**P, R](lock: RWLockWrapper, func: Callable[P, R]) -> Callable[P, R]:
+def wrap_simple[**P, R](lock: RWLockWrapper, func: Callable[P, R], check_storage=None) -> Callable[P, R]:
     @wraps(func)
     def call_func_with_lock(*args: P.args, **kwargs: P.kwargs) -> R:
         try:
             with lock:
+                if check_storage is not None:
+                    check_storage()
                 return func(*args, **kwargs)
         except DowngradeLockError:
             # We already have an exclusive lock, no need to acquire a shared
             # lock. See the safe_read_lock properties' documentation for why
             # this is necessary.
+            if check_storage is not None:
+                check_storage()
             return func(*args, **kwargs)
 
     return call_func_with_lock
@@ -262,7 +266,7 @@ class Cache:
                 lock = self.read_lock
                 if is_write_api:
                     lock = self.quiet_write_lock if name in category_quiet_writes else self.write_lock
-                setattr(self, name, wrap_simple(lock, func))
+                setattr(self, name, wrap_simple(lock, func, backend.check_storage if is_write_api else None))
 
         self._search_api = Search(self, 'saved_searches', self.field_metadata.get_search_terms())
         self.initialize_dynamic()
@@ -2983,6 +2987,7 @@ class Cache:
         :param run_hooks: If True, file type plugins are run on the format before and after being added.
         :param dbapi: Internal use only.
         """
+        self.backend.check_storage()
         needs_close = False
         if run_hooks:
             # Run import plugins, the write lock is not held to cater for
@@ -3002,6 +3007,7 @@ class Cache:
         # ReadingTest.test_categories_cache() cannot check it, every write made
         # under this lock must be reported explicitly.
         with self.quiet_write_lock:
+            self.backend.check_storage()
             if not self._has_id(book_id):
                 raise NoSuchBook(book_id)
             fmt = (fmt or '').upper()

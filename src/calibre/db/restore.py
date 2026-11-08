@@ -308,7 +308,9 @@ class Restore(Thread):
         notes_dest = os.path.join(self.library_path, NOTES_DIR_NAME)
         if os.path.exists(notes_dest):  # created by load_preferences()
             shutil.rmtree(notes_dest)
-        notes_src = os.path.join(self.src_library_path, NOTES_DIR_NAME)
+        from calibre.db.separated_storage import resolve_database_path
+        source_db = resolve_database_path(self.src_library_path, allow_missing_database=True)
+        notes_src = os.path.join(os.path.dirname(source_db), NOTES_DIR_NAME)
         if os.path.exists(notes_src):  # if missing, Restorer creates a fresh notes store
             shutil.copytree(notes_src, notes_dest)
             with suppress(FileNotFoundError):
@@ -339,7 +341,8 @@ class Restore(Thread):
             self.notes_errors = db.backend.restore_notes(self.progress_callback)
 
     def replace_db(self) -> None:
-        dbpath = os.path.join(self.src_library_path, 'metadata.db')
+        from calibre.db.separated_storage import resolve_database_path
+        dbpath = resolve_database_path(self.src_library_path, allow_missing_database=True)
         ndbpath = os.path.join(self.library_path, 'metadata.db')
         sleep_time = 30 if iswindows else 0
 
@@ -356,7 +359,7 @@ class Restore(Thread):
                 os.remove(dbpath)
         shutil.copyfile(ndbpath, dbpath)
 
-        old_notes_path = os.path.join(self.src_library_path, NOTES_DIR_NAME)
+        old_notes_path = os.path.join(os.path.dirname(dbpath), NOTES_DIR_NAME)
         new_notes_path = os.path.join(self.library_path, NOTES_DIR_NAME)
         temp = old_notes_path + '-staging'
         with suppress(OSError):

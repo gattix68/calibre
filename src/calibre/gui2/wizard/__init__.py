@@ -7,7 +7,7 @@ import traceback
 from contextlib import closing, suppress
 from typing import Protocol, runtime_checkable
 
-from qt.core import QAbstractListModel, QDir, QIcon, QItemSelection, QItemSelectionModel, Qt, QWizard, QWizardPage, pyqtSignal
+from qt.core import QAbstractListModel, QCheckBox, QHBoxLayout, QLineEdit, QPushButton, QDir, QIcon, QItemSelection, QItemSelectionModel, Qt, QWizard, QWizardPage, pyqtSignal
 
 from calibre import __appname__
 from calibre.constants import filesystem_encoding, isportable, iswindows
@@ -658,12 +658,33 @@ class LibraryPage(QWizardPage, LibraryUI):
         self.made_dirs = []
         self.initial_library_location = None
         self.setupUi(self)
+        self.separate_storage = QCheckBox(_('Store the database in a separate local folder'), self)
+        self.database_location = QLineEdit(self)
+        self.database_location.setPlaceholderText(_('Local database folder (empty)'))
+        self.database_browse = QPushButton(_('Browse…'), self)
+        self.database_browse.clicked.connect(self.choose_database_location)
+        database_row = QHBoxLayout()
+        database_row.addWidget(self.database_location)
+        database_row.addWidget(self.database_browse)
+        self.verticalLayout.addWidget(self.separate_storage)
+        self.verticalLayout.addLayout(database_row)
+        self.database_location.setEnabled(False)
+        self.database_browse.setEnabled(False)
+        self.separate_storage.toggled.connect(self.database_location.setEnabled)
+        self.separate_storage.toggled.connect(self.database_browse.setEnabled)
+        for widget in (self.separate_storage, self.database_location, self.database_browse):
+            widget.setVisible(not isportable)
         self.registerField('library_location', self.location)
         self.button_change.clicked.connect(self.change)
         self.init_languages()
         self.language.currentIndexChanged.connect(self.change_language)
         self.location.textChanged.connect(self.location_text_changed)
         self.set_move_lib_label_text()
+
+    def choose_database_location(self):
+        loc = choose_dir(self, 'wizard local database', _('Choose local database folder'))
+        if loc:
+            self.database_location.setText(loc)
 
     def makedirs(self, x) -> None:
         self.made_dirs.append(x)
@@ -755,6 +776,21 @@ class LibraryPage(QWizardPage, LibraryUI):
         if not self.is_library_dir_suitable(newloc):
             self.show_library_dir_error(newloc)
             return False
+        if self.separate_storage.isChecked():
+            local = self.database_location.text().strip()
+            if not local or not os.path.isabs(local) or not os.path.isdir(local) or os.listdir(local) or os.listdir(newloc):
+                error_dialog(self, _('Cannot create separated library'),
+                    _('Choose empty books and local database folders. Existing libraries cannot be converted here.'), show=True)
+                return False
+            try:
+                books_real, local_real = os.path.realpath(newloc), os.path.realpath(local)
+                common = os.path.commonpath((books_real, local_real))
+            except ValueError:  # Separate Windows drives
+                common = None
+            if common in (books_real, local_real) or not os.access(local, os.W_OK):
+                error_dialog(self, _('Cannot create separated library'),
+                    _('Choose separate, non-nested writable folders.'), show=True)
+                return False
         return True
 
     def change(self):
@@ -851,6 +887,9 @@ class LibraryPage(QWizardPage, LibraryUI):
                 os.rmdir(x)
         if not os.path.exists(newloc):
             os.makedirs(newloc)
+        if self.separate_storage.isChecked():
+            from calibre.db.separated_storage import configure_separated_storage
+            configure_separated_storage(newloc, self.database_location.text().strip())
         prefs['library_path'] = newloc
 
     def nextId(self):

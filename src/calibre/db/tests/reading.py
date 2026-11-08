@@ -430,8 +430,15 @@ class ReadingTest(BaseTest):
         # Test text search
         self.assertEqual(cache.search('template:"{#formats}#@#:t:fmt1"'), {1, 2})
         self.assertEqual(cache.search('template:"{authors}#@#:t:=Author One"'), {2})
-        cache.set_field('pubdate', {1: p('2001-02-06'), 2: p('2001-10-06'), 3: p('2001-06-06')})
-        cache.set_field('timestamp', {1: p('2002-02-06'), 2: p('2000-10-06'), 3: p('2001-06-06')})
+        # Date search compares local calendar days. UTC midnight is the
+        # previous day west of Greenwich, so use local dates for these cases.
+        from calibre.utils.date import local_tz
+
+        def local_date(value):
+            return p(value).replace(tzinfo=local_tz)
+
+        cache.set_field('pubdate', {1: local_date('2001-02-06'), 2: local_date('2001-10-06'), 3: local_date('2001-06-06')})
+        cache.set_field('timestamp', {1: local_date('2002-02-06'), 2: local_date('2000-10-06'), 3: local_date('2001-06-06')})
         # Test numeric compare search
         self.assertEqual(
             cache.search("template:\"program: floor(days_between(field('pubdate'), field('timestamp')))#@#:n:>0\""),

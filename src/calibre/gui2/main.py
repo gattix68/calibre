@@ -201,6 +201,17 @@ def try_other_known_library_paths():
 
 def get_library_path(gui_runner):
     library_path = prefs['library_path']
+    from calibre.db.separated_storage import registry, resolve_database_path
+    if library_path and registry().get(os.path.abspath(library_path)) is not None:
+        try:
+            resolve_database_path(library_path)
+        except (OSError, ValueError):
+            gui_runner.show_error(
+                _('Library storage unavailable'),
+                _('Reconnect the books and local database drives, then restart calibre.'),
+                det_msg=traceback.format_exc(),
+            )
+            raise AbortInit()
     if library_path is None:  # Need to migrate to new database layout
         base = os.path.expanduser('~')
         if not base or not os.path.exists(base):

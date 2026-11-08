@@ -8,11 +8,86 @@ The books root remains Calibre's normal library_path.
 import json
 import os
 import tempfile
+import uuid
 
 CONFIG_NAME = '.calibre-separated-storage.json'
+DATABASE_CONFIG_NAME = '.calibre-separated-database.json'
 
 
-def resolve_database_path(library_path: str) -> str:
+def registry():
+    # Keep a local record so a disconnected books mount cannot masquerade as
+    # a new ordinary library when its marker disappears.
+    from calibre.utils.config import JSONConfig
+    return JSONConfig('separated-library-storage')
+
+
+def storage_identity(library_path):
+    root = os.path.abspath(library_path)
+    known = registry().get(root)
+    marker = os.path.join(root, CONFIG_NAME)
+    if known is None and not os.path.lexists(marker):
+        return None
+    with open(marker, encoding='utf-8') as stream:
+        config = json.load(stream)
+    if known is not None and config != known:
+        raise OSError(f'Separated books storage has changed or is unavailable: {root}')
+    return config
+
+
+def check_database_identity(config):
+    if config.get('storage_id'):
+        owner_path = os.path.join(config['database_directory'], DATABASE_CONFIG_NAME)
+        with open(owner_path, encoding='utf-8') as stream:
+            owner = json.load(stream)
+        if not isinstance(owner, dict) or owner.get('storage_id') != config['storage_id']:
+            raise OSError('The local database folder belongs to different or unavailable storage')
+
+
+def check_storage(library_path, expected):
+    if expected is None:
+        return
+    if storage_identity(library_path) != expected:
+        raise OSError(f'Separated books storage is unavailable: {library_path}')
+    check_database_identity(expected)
+    directory = expected['database_directory']
+    if not os.path.isdir(directory):
+        raise FileNotFoundError(f'Local database storage is unavailable: {directory}')
+    if expected.get('initialized') and not os.path.isfile(os.path.join(directory, 'metadata.db')):
+        raise FileNotFoundError(f'Separated database is unavailable: {directory}')
+
+
+def mark_initialized(library_path, config):
+    # Persist this on the books drive too: losing local application preferences
+    # must not allow a missing database to be silently replaced with an empty one.
+    if config.get('initialized'):
+        return config
+    check_storage(library_path, config)
+    config = dict(config, initialized=True)
+    fd, temporary = tempfile.mkstemp(prefix='.calibre-storage-', dir=library_path)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+            json.dump(config, stream, indent=2)
+            stream.write('\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, os.path.join(library_path, CONFIG_NAME))
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    registry()[os.path.abspath(library_path)] = config
+    return config
+
+
+def library_exists(path):
+    if not path:
+        return False
+    try:
+        return os.path.isfile(resolve_database_path(path))
+    except (OSError, ValueError):
+        return False
+
+
+def resolve_database_path(library_path: str, *, allow_missing_database: bool = False) -> str:
     """Return the configured metadata.db path, or the standard Calibre path.
 
     A missing books root is an error for a configured split library: never
@@ -20,13 +95,13 @@ def resolve_database_path(library_path: str) -> str:
     """
     root = os.path.abspath(library_path)
     default = os.path.join(root, 'metadata.db')
-    config_path = os.path.join(root, CONFIG_NAME)
-    if not os.path.isfile(config_path):
+    config = storage_identity(root)
+    if config is None:
+        if os.path.lexists(os.path.join(root, DATABASE_CONFIG_NAME)):
+            raise ValueError('Select the managed books folder, not the separated database folder')
         return default
     if not os.path.isdir(root):
         raise FileNotFoundError(f'Books root is unavailable: {root}')
-    with open(config_path, encoding='utf-8') as stream:
-        config = json.load(stream)
     if not isinstance(config, dict) or config.get('version') != 1:
         raise ValueError('Unsupported separated-library configuration')
     database_dir = config.get('database_directory')
@@ -41,7 +116,24 @@ def resolve_database_path(library_path: str) -> str:
         raise FileExistsError('Books root already contains metadata.db; refusing ambiguous database selection')
     if not os.access(database_dir, os.W_OK):
         raise PermissionError(f'Database directory is not writable: {database_dir}')
-    return os.path.join(database_dir, 'metadata.db')
+    check_database_identity(config)
+    target = os.path.join(database_dir, 'metadata.db')
+    if not allow_missing_database and config.get('initialized') and not os.path.isfile(target):
+        raise FileNotFoundError(f'Separated database is unavailable: {target}')
+    if registry().get(root) is None:
+        registry()[root] = config
+    return target
+
+
+def validate_directories(root, database_directory):
+    database_directory = os.path.realpath(database_directory)
+    books_real = os.path.realpath(root)
+    try:
+        common = os.path.commonpath((books_real, database_directory))
+    except ValueError:  # Different Windows drives are necessarily disjoint.
+        common = None
+    if common in (books_real, database_directory):
+        raise ValueError('Database and books directories must be separate, non-nested folders')
 
 
 def configure_separated_storage(library_path: str, database_directory: str) -> str:
@@ -56,8 +148,7 @@ def configure_separated_storage(library_path: str, database_directory: str) -> s
         raise FileNotFoundError(f'Books root is unavailable: {root}')
     if not os.path.isdir(database_directory):
         raise FileNotFoundError(f'Database directory is unavailable: {database_directory}')
-    if os.path.samefile(root, database_directory):
-        raise ValueError('Database and books directories must differ')
+    validate_directories(root, database_directory)
     if os.path.exists(os.path.join(root, 'metadata.db')):
         raise FileExistsError('Cannot configure an existing standard Calibre library')
     config_path = os.path.join(root, CONFIG_NAME)
@@ -66,19 +157,33 @@ def configure_separated_storage(library_path: str, database_directory: str) -> s
     target = os.path.join(os.path.realpath(database_directory), 'metadata.db')
     if os.path.exists(target):
         raise FileExistsError(f'Database target already exists: {target}')
+    if os.listdir(root) or os.listdir(database_directory):
+        raise FileExistsError('New separated libraries require empty books and database folders')
     if not os.access(database_directory, os.W_OK) or not os.access(root, os.W_OK):
         raise PermissionError('Both storage directories must be writable')
     # Use an exclusive create: concurrent attempts cannot overwrite a marker.
     # The marker is written only after all validation has succeeded.
-    payload = json.dumps({'version': 1, 'database_directory': os.path.realpath(database_directory)}, indent=2)
-    fd, temporary = tempfile.mkstemp(prefix='.calibre-storage-', dir=root)
+    config = {'version': 1, 'database_directory': os.path.realpath(database_directory), 'storage_id': str(uuid.uuid4())}
+    payload = json.dumps(config, indent=2)
+    owner_path = os.path.join(database_directory, DATABASE_CONFIG_NAME)
+    with open(owner_path, 'x', encoding='utf-8') as stream:
+        stream.write(payload + '\n')
+        stream.flush()
+        os.fsync(stream.fileno())
+    temporary = None
     try:
+        fd, temporary = tempfile.mkstemp(prefix='.calibre-storage-', dir=root)
         with os.fdopen(fd, 'w', encoding='utf-8') as stream:
             stream.write(payload + '\n')
             stream.flush()
             os.fsync(stream.fileno())
         # A hard link fails rather than replacing an existing marker.
         os.link(temporary, config_path)
+    except Exception:
+        os.unlink(owner_path)
+        raise
     finally:
-        os.unlink(temporary)
+        if temporary is not None:
+            os.unlink(temporary)
+    registry()[root] = config
     return target
