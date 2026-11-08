@@ -2610,7 +2610,11 @@ class DB:
                 # the destination's permissions, ownership and extended
                 # attributes where supported; a separate os.replace() would
                 # silently discard them.
-                size = write_stream_to_format_file(stream, dest)
+                if isinstance(stream, str):
+                    with open_with_retry(stream, 0.2) as source:
+                        size = write_stream_to_format_file(source, dest)
+                else:
+                    size = write_stream_to_format_file(stream, dest)
                 if mtime is not None:
                     os.utime(dest, (mtime, mtime), follow_symlinks=False)
             stat = os.stat(dest, follow_symlinks=False)
