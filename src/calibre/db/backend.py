@@ -728,7 +728,11 @@ class DB:
         check_indexed_library_startup(library_path)
 
         self.library_path = os.path.abspath(library_path)
-        self.dbpath = os.path.join(library_path, 'metadata.db')
+        # Resolve the database path independently of the managed books root.
+        # Libraries without a separated-storage marker retain Calibre's
+        # traditional metadata.db location.
+        from calibre.db.separated_storage import resolve_database_path
+        self.dbpath = resolve_database_path(self.library_path)
         self.dbpath = os.environ.get('CALIBRE_OVERRIDE_DATABASE_PATH', self.dbpath)
 
         if iswindows and len(self.library_path) + 4 * self.PATH_LIMIT + 10 > 259:
