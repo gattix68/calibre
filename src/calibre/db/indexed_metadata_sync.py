@@ -117,3 +117,11 @@ def merge_embedded_metadata(database_metadata: Any, embedded_metadata: Any) -> t
     for field, change in differences.items():
         setattr(updated, field, change['embedded'])
     return updated, differences
+
+
+def indexed_file_has_changed(recorded_size: int, recorded_mtime_ns: int, current_stat: Any) -> bool:
+    """Return whether the file size or nanosecond mtime differs from its index."""
+    return (
+        int(recorded_size) != int(current_stat.st_size)
+        or int(recorded_mtime_ns) != int(current_stat.st_mtime_ns)
+    )
