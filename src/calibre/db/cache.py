@@ -2914,6 +2914,23 @@ class Cache:
         result['error_count'] = len(result['errors'])
         return result
 
+    @quiet_write_api
+    def sync_indexed_library_files(self) -> dict[str, Any]:
+        """Reconcile externally renamed files and refresh Calibre's format index."""
+        if not getattr(self.backend, 'is_indexed_library', False):
+            raise RuntimeError('File synchronization requires an Indexed Library')
+        result = self.backend.reconcile_indexed_file_renames()
+        for item in result['renamed']:
+            filename = os.path.basename(item['new_path'])
+            fname = os.path.splitext(filename)[0]
+            self._record_format_added(
+                item['book_id'], item['format'], fname, item['size']
+            )
+        result['renamed_count'] = len(result['renamed'])
+        result['ambiguous_count'] = len(result['ambiguous'])
+        result['unmatched_count'] = len(result['unmatched'])
+        return result
+
     def _do_add_format(self, book_id: int, fmt: str, stream: str | IO[bytes], name: str | None = None, mtime: float | None = None) -> tuple[int, str]:
         path = self._get_book_path(book_id, unsafe=True)
         if path is None:
