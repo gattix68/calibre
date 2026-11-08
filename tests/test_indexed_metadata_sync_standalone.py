@@ -14,7 +14,13 @@ spec.loader.exec_module(mod)
 
 class FakeMetadata:
     def __init__(self, **values):
-        self.values = values
+        object.__setattr__(self, 'values', values)
+
+    def __setattr__(self, name, value):
+        if name == 'values':
+            object.__setattr__(self, name, value)
+        else:
+            self.values[name] = value
 
     def is_null(self, field):
         return field not in self.values or self.values[field] is None
