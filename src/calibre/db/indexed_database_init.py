@@ -87,7 +87,7 @@ def initialize_indexed_database(library_directory, base_schema_sql):
                 db.create_function('title_sort', 1, lambda title: title)
                 db.create_function('uuid4', 0, lambda: str(uuid.uuid4()))
                 db.executescript(base_schema_sql)
-                db.executescript(';\\n'.join(INDEXED_FILES_SCHEMA))
+                db.executescript(';\n'.join(INDEXED_FILES_SCHEMA))
                 if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
                     raise RuntimeError('Indexed database integrity check failed')
                 if db.execute(
