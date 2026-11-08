@@ -203,6 +203,11 @@ class ChooseLibrary(QDialog, Ui_Dialog):
         text = str(self.location.text()).strip()
         if not text:
             return error_dialog(self, _('No location'), _('No location selected'), show=True)
+        from calibre.db.separated_storage import validate_filesystem_path
+        try:
+            validate_filesystem_path(text)
+        except ValueError as err:
+            return error_dialog(self, _('Bad location'), str(err), show=True)
         loc = os.path.abspath(text)
         if action == 'move':
             try:

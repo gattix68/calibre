@@ -20,6 +20,29 @@ def registry():
     return JSONConfig('separated-library-storage')
 
 
+def validate_filesystem_path(path):
+    # Calibre manages filesystem paths. A desktop SMB picker supplies a GVfs,
+    # mounted-volume or UNC path; abspath() must not turn a URL into a local dir.
+    prefix, separator, _ = os.fspath(path).partition('://')
+    if separator and len(prefix) > 1 and prefix[0].isalpha() and all(c.isalnum() or c in '+-.' for c in prefix):
+        raise ValueError('Choose the connected share with the desktop folder picker and use its filesystem path, not a URL')
+
+
+def validate_configuration(config):
+    # Only absence means an ordinary library. JSON null and malformed optional
+    # fields must never disable ownership or missing-database safeguards.
+    if not isinstance(config, dict) or type(config.get('version')) is not int or config['version'] != 1:
+        raise ValueError('Unsupported separated-library configuration')
+    directory = config.get('database_directory')
+    if not isinstance(directory, str) or not os.path.isabs(directory):
+        raise ValueError('Database directory must be an absolute path')
+    if 'storage_id' in config and (not isinstance(config['storage_id'], str) or not config['storage_id'].strip()):
+        raise ValueError('Storage identity must be a non-empty string')
+    if 'initialized' in config and type(config['initialized']) is not bool:
+        raise ValueError('Initialized state must be a boolean')
+    return config
+
+
 def storage_identity(library_path):
     root = os.path.abspath(library_path)
     known = registry().get(root)
@@ -33,6 +56,7 @@ def storage_identity(library_path):
         if known is not None or os.path.lexists(marker):
             raise
         return None
+    validate_configuration(config)
     if known is not None and config != known:
         raise OSError(f'Separated books storage has changed or is unavailable: {root}')
     return config
@@ -43,7 +67,8 @@ def check_database_identity(config):
         owner_path = os.path.join(config['database_directory'], DATABASE_CONFIG_NAME)
         with open(owner_path, encoding='utf-8') as stream:
             owner = json.load(stream)
-        if not isinstance(owner, dict) or owner.get('storage_id') != config['storage_id']:
+        validate_configuration(owner)
+        if owner.get('storage_id') != config['storage_id']:
             raise OSError('The local database folder belongs to different or unavailable storage')
 
 
@@ -100,6 +125,7 @@ def resolve_database_path(library_path: str, *, allow_missing_database: bool = F
     A missing books root is an error for a configured split library: never
     silently initialize a new empty library on an unmounted NAS.
     """
+    validate_filesystem_path(library_path)
     root = os.path.abspath(library_path)
     default = os.path.join(root, 'metadata.db')
     config = storage_identity(root)
@@ -109,16 +135,13 @@ def resolve_database_path(library_path: str, *, allow_missing_database: bool = F
         return default
     if not os.path.isdir(root):
         raise FileNotFoundError(f'Books root is unavailable: {root}')
-    if not isinstance(config, dict) or config.get('version') != 1:
-        raise ValueError('Unsupported separated-library configuration')
-    database_dir = config.get('database_directory')
-    if not isinstance(database_dir, str) or not os.path.isabs(database_dir):
-        raise ValueError('Database directory must be an absolute path')
+    database_dir = config['database_directory']
     database_dir = os.path.realpath(database_dir)
     if not os.path.isdir(database_dir):
         raise FileNotFoundError(f'Local database directory is unavailable: {database_dir}')
     if os.path.samefile(database_dir, root):
         raise ValueError('Separated database directory must differ from books root')
+    validate_directories(root, database_dir)
     if os.path.exists(default):
         raise FileExistsError('Books root already contains metadata.db; refusing ambiguous database selection')
     if not os.access(database_dir, os.W_OK):
@@ -139,7 +162,7 @@ def validate_directories(root, database_directory):
         common = os.path.commonpath((books_real, database_directory))
     except ValueError:  # Different Windows drives are necessarily disjoint.
         common = None
-    if common in (books_real, database_directory):
+    if common is not None and os.path.normcase(common) in (os.path.normcase(books_real), os.path.normcase(database_directory)):
         raise ValueError('Database and books directories must be separate, non-nested folders')
 
 
@@ -149,6 +172,8 @@ def configure_separated_storage(library_path: str, database_directory: str) -> s
     Both directories must already exist. Never relocate an existing database.
     Returns the target database path; the caller can then initialize Calibre.
     """
+    validate_filesystem_path(library_path)
+    validate_filesystem_path(database_directory)
     root = os.path.abspath(library_path)
     database_directory = os.path.abspath(database_directory)
     if not os.path.isdir(root):

@@ -192,6 +192,9 @@ class LibraryDatabase2(LibraryDatabase, SchemaUpgrade, CustomColumns):
                 library_path = library_path.decode(filesystem_encoding)
         except Exception:
             traceback.print_exc()
+        from calibre.db.separated_storage import resolve_database_path
+        if resolve_database_path(library_path) != os.path.join(os.path.abspath(library_path), 'metadata.db'):
+            raise ValueError('Separated storage requires calibre.db.legacy.LibraryDatabase, not the obsolete library.database2 backend')
         self.field_metadata = FieldMetadata()
         self.format_filename_cache = defaultdict(dict)
         self._library_id_ = None

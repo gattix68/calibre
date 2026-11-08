@@ -773,6 +773,12 @@ class LibraryPage(QWizardPage, LibraryUI):
 
     def validatePage(self) -> bool:
         newloc = str(self.location.text())
+        from calibre.db.separated_storage import validate_directories, validate_filesystem_path
+        try:
+            validate_filesystem_path(newloc)
+        except ValueError as err:
+            error_dialog(self, _('Bad location'), str(err), show=True)
+            return False
         if not self.is_library_dir_suitable(newloc):
             self.show_library_dir_error(newloc)
             return False
@@ -783,13 +789,12 @@ class LibraryPage(QWizardPage, LibraryUI):
                     _('Choose empty books and local database folders. Existing libraries cannot be converted here.'), show=True)
                 return False
             try:
-                books_real, local_real = os.path.realpath(newloc), os.path.realpath(local)
-                common = os.path.commonpath((books_real, local_real))
-            except ValueError:  # Separate Windows drives
-                common = None
-            if common in (books_real, local_real) or not os.access(local, os.W_OK):
-                error_dialog(self, _('Cannot create separated library'),
-                    _('Choose separate, non-nested writable folders.'), show=True)
+                validate_directories(newloc, local)
+            except ValueError as err:
+                error_dialog(self, _('Cannot create separated library'), str(err), show=True)
+                return False
+            if not os.access(local, os.W_OK):
+                error_dialog(self, _('Cannot create separated library'), _('Choose a writable local database folder.'), show=True)
                 return False
         return True
 
@@ -798,6 +803,11 @@ class LibraryPage(QWizardPage, LibraryUI):
 
         x = choose_dir(self, 'database location dialog', _('Select location for books'))
         if x:
+            from calibre.db.separated_storage import validate_filesystem_path
+            try:
+                validate_filesystem_path(x)
+            except ValueError as err:
+                return error_dialog(self, _('Bad location'), str(err), show=True)
             if iswindows and len(x) > LibraryDatabase.WINDOWS_LIBRARY_PATH_LIMIT:
                 return error_dialog(
                     self,
@@ -875,6 +885,8 @@ class LibraryPage(QWizardPage, LibraryUI):
 
     def commit(self) -> None:
         newloc = str(self.location.text())
+        from calibre.db.separated_storage import validate_filesystem_path
+        validate_filesystem_path(newloc)
         try:
             dln = self.default_library_name
             if dln and os.path.exists(dln) and not os.listdir(dln) and newloc != dln:

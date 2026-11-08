@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from calibre.constants import filesystem_encoding
 from calibre.db.constants import COVER_FILE_NAME, DATA_DIR_NAME, METADATA_FILE_NAME, NOTES_DIR_NAME, TRASH_DIR_NAME
+from calibre.db.separated_storage import CONFIG_NAME
 from calibre.ebooks import BOOK_EXTENSIONS
 from calibre.utils.localization import _
 
@@ -21,6 +22,7 @@ EBOOK_EXTENSIONS = frozenset(BOOK_EXTENSIONS)
 NORMALS = frozenset({METADATA_FILE_NAME, COVER_FILE_NAME, DATA_DIR_NAME})
 IGNORE_AT_TOP_LEVEL = frozenset({
     'metadata.db',
+    CONFIG_NAME,
     'metadata_db_prefs_backup.json',
     'metadata_pre_restore.db',
     'full-text-search.db',
@@ -106,6 +108,10 @@ class CheckLibrary:
         self.ignore_ext = frozenset('.' + e for e in extension_ignores)
 
         lib = self.src_library_path
+        backend = getattr(self.db, 'backend', None)
+        separated = backend is not None and backend.separated_storage is not None
+        if separated:
+            backend.check_storage()
         for auth_dir in os.listdir(lib):
             if self.ignore_name(auth_dir) or auth_dir in IGNORE_AT_TOP_LEVEL:
                 continue
@@ -166,7 +172,11 @@ class CheckLibrary:
         # Check for formats and covers in db for book dirs that are gone
         for id_ in self.all_ids:
             path = self.dbpath(id_)
-            if not os.path.exists(os.path.join(lib, path)):
+            available = backend.storage_path_exists(os.path.join(lib, path)) if separated else os.path.exists(os.path.join(lib, path))
+            if not available:
+                if separated:
+                    self.failed_folders.append((path, _('Registered book storage is unavailable; reconnect or repair it explicitly.'), []))
+                    continue
                 if self.is_case_sensitive and id_ in self.malformed_paths_ids:
                     continue
 

@@ -1,294 +1,282 @@
-# Separated Library Storage and Reader Link Views
+# Separated library storage — Phase 1 baseline
 
-Status: separated-storage implementation with automated regression coverage; reader link views pending
 Branch: `feature/separated-library-storage`
-Base: `feature/indexed-library`
 
-## Product contract
+Local annotated baseline tag: `phase1-separated-storage-baseline`
 
-This fork retains **normal Calibre library behavior**: native imports, file naming,
-metadata editing, covers, format conversion, and library switching. It must not
-silently substitute the Indexed Library semantics for normal library management.
+Configuration version: **1**
 
-Two locations are selected **at library creation**:
-1. Database/state directory on a local disk.
-2. Calibre-managed book directory, potentially on a persistently mounted NAS.
+Phase 1 retains normal Calibre library management with SQLite on a local disk
+and managed books in a separately selected filesystem folder, including a
+connected SMB share. User GUI testing passed PDF, EPUB and CBZ import, metadata
+updates, and persistence across restarts over Linux SMB/GVfs. Automated review
+uses disposable data only. Actual network-disconnection testing is not performed.
 
-No post-creation manual relocation of `metadata.db` is required. A successful
-manual relocation experiment is evidence of feasibility on one installation,
-not proof that the core supports the split across all operations and platforms.
+Phase 2, the reader link manager, is **not implemented** by this baseline.
 
-## Architecture constraint to resolve first
+## Architecture and directory structure
 
-Calibre historically derives `metadata.db`, book directories, and sidecar paths
-from a single library root. Before exposing a creation wizard, audit the actual
-paths in `calibre.db.backend.DB`, cache/legacy wrappers, library switching,
-database backups, restores, moves, trash, and maintenance. Introduce an explicit
-database-root versus books-root contract at the lowest shared layer that can
-support all those operations; do not implement a GUI-only path redirection.
+The shared resolver is `calibre.db.separated_storage.resolve_database_path()`.
+`calibre.db.backend.DB.library_path` is always the **managed books root**;
+`DB.dbpath` is the independently resolved SQLite file. Modern GUI, library
+broker, `calibredb`, cache and legacy-compatibility APIs use this backend. A
+library without a marker or remembered split identity retains the ordinary
+Calibre layout and behavior.
 
-Existing Indexed Library modules are reference implementations, not a basis for
-the new library's metadata or file-management semantics. Retire the Indexed
-Library entry points only after the normal-library path is validated.
+```text
+Local database folder/                 Selected local filesystem folder
+  .calibre-separated-database.json      Ownership marker
+  metadata.db                          Book metadata, IDs and library preferences
+  full-text-search.db                  Optional full-text search database
+  .calnotes/
+    notes.db                           Author/series/tag notes database
+    resources/                         Note resources
+    backup/                            Note recovery data
+    retired/                           Retired note data
+  metadata_pre_restore.db               Created when rebuilding from sidecars
+  ...                                  SQLite journals and temporary state
 
-## Reader link views
+Managed books folder/                  Selected local or connected SMB folder
+  .calibre-separated-storage.json       Split configuration and storage identity
+  Author/
+    Title (id)/
+      Title - Author.epub               Normal Calibre-managed formats/names
+      Title - Author.cbz
+      cover.jpg
+      metadata.opf
+      data/                            Optional extra files
+  .caltrash/                           Normal Calibre trash, on the books storage
+  metadata_db_prefs_backup.json         Library preference recovery sidecar
 
-The original Calibre-managed book files are authoritative. A separate output
-directory is a disposable, rebuildable view for Komga or Kavita, grouped by
-series/collection metadata. No file copying and no writes to source books.
-
-Initial link operations are explicit preview and sync. A later close prompt
-must only report pending changes; it must not silently mutate source media.
-
-Link reconciliation must:
-- Detect missing/unmounted source storage and **refuse destructive cleanup**.
-- Never follow a link when deleting an obsolete generated link.
-- Never overwrite user-created files or directories in output.
-- Record ownership of generated links in a manifest and use atomic updates.
-- Handle name collisions, invalid characters, series order, and multiple formats.
-- Validate actual symlink visibility inside Komga/Kavita mount namespaces before
-  claiming either reader is supported.
-- Document Linux/macOS symlinks and Windows link privileges separately.
-
-## Implementation order and acceptance gates
-
-1. **Core audit:** map database-root and books-root assumptions; write regression
-   tests proving normal library creation and reopen with split paths.
-2. **Normal operations:** add/import, metadata edit, cover/sidecars, conversion,
-   rename/move, delete/trash, backup/restore, library switch; verify against
-   a temporary local directory and an independently mounted book directory.
-3. **GUI:** creation dialog accepts both paths, validates writable mounts and
-   explains offline/missing storage without initializing a broken library.
-4. **Link engine:** dry-run manifest, safe create/update/remove, deterministic
-   series and collection paths, tests for conflicts and missing mounts.
-5. **Reader integration:** manually confirm Komga then Kavita scanner behavior.
-6. **UX:** toolbar, configuration, manual sync, change tracking and close prompt.
-
-## Non-goals
-
-- A second Indexed Library mode.
-- Rewriting Calibre metadata management.
-- Automatically importing arbitrary NAS files without normal Calibre import.
-- Duplicating ebook/comic files for readers.
-- Assuming stable mount paths guarantee SQLite network-locking safety.
-
-## Separated-storage milestone implementation
-
-The normal backend now resolves `metadata.db` independently of its managed
-`library_path`. Creation is available in the first-run wizard and in
-**Switch/create library → Create an empty library**: select the books folder,
-enable separate local database storage, and select an empty local folder.
-Choose genuinely local storage for SQLite; the picker does not establish the
-locking reliability of a network filesystem. Existing libraries are not
-converted by this flow. Both folders must be empty, writable, and non-nested.
-Ordinary libraries retain their existing layout.
-
-The books folder contains `.calibre-separated-storage.json`, including a unique
-storage identity and an initialized flag. The local database folder has a matching ownership marker,
-`.calibre-separated-database.json`, to prevent sharing a database directory
-between different libraries. Select the books folder when reopening.
-Calibre's local configuration also
-records this identity in `separated-library-storage.json`. Preserve this local
-record: it identifies a previously configured library when the books mount and
-its marker are absent. A missing database after initialization is an error,
-including on a fresh installation that still has the books marker. Reconnect
-storage at its original path before reopening. Do not delete these records to
-work around a storage error.
-
-### Path audit and coordinated behavior
-
-- `db.backend.DB.dbpath`: local SQLite database, SQLite temporary rebuilds,
-  notes database/resources, and full-text search state.
-- `DB.library_path`: managed author/title folders, formats, covers,
-  `metadata.opf`, preference backups, extra files, and Calibre trash.
-- Backend and legacy `exists_at()` discover separated libraries using the same
-  resolver. Startup and quick switching explain known unavailable storage.
-- Cache write APIs check storage before changing cached metadata. Format import
-  has its own lock and checks separately. Backend file operations check the
-  marker before writing, renaming, backing up sidecars, or deleting files.
-- Rebuilding from sidecars replaces the local database and preserves a local
-  pre-restore database. Notes are restored from the local notes directory.
-- Whole-library relocation moves the books root and its marker while keeping
-  SQLite local. Book copies/moves between libraries retain normal Calibre
-  behavior. The former location stays registered as unavailable, preventing
-  accidental recreation there.
-- Experimental Indexed Library creation/inspection menu actions and its built-in
-  toolbar plugin registration are retired. Historical modules remain for
-  reference and existing startup checks; separated storage never enables them.
-
-### Verification and remaining acceptance gates
-
-Automated regression coverage uses temporary directories exclusively. It covers
-creation and reopen through the offscreen Qt creation dialog, first-run wizard,
-normal imports, title/author path changes, series/collection metadata, covers,
-OPF backups, deletes, copies between libraries, books-root relocation, database
-backup, notes-aware recovery, missing local databases, and simulated
-disconnection of either storage root. Disconnection tests rename a temporary
-root and, for books, expose an empty replacement mountpoint, then verify that
-writes fail without populating it. Ordinary library operations and the broader
-database suite are also exercised.
-
-Actual NAS mount failures, abrupt disconnection during an in-flight filesystem
-operation, Windows/macOS behavior, and GUI usability on a visible desktop still
-require manual validation. Marker checks reject unavailable storage before an
-operation; they cannot make an entire network filesystem operation atomic.
-SQL dump/rebuild tests require `apsw.shell` and are skipped when the installed
-runtime omits it; backup and OPF-based recovery have separate tests.
-No real MediaPool data is used by these tests.
-
-The Komga/Kavita link engine, preview/sync UI, manifest reconciliation, and reader
-container namespace/scanner validation remain subsequent milestones. No reader
-compatibility is claimed by this storage implementation.
-
-Run the regression suite against the installed Calibre runtime from this checkout:
-
-```sh
-CALIBRE_DEVELOP_FROM="$PWD/src" QT_QPA_PLATFORM=offscreen \
-  /opt/calibre/calibre-debug -c 'from calibre.db.tests.main import find_tests; import unittest; r = unittest.TextTestRunner().run(find_tests()); raise SystemExit(not r.wasSuccessful())'
+Calibre configuration folder/          Separate, per-user local application config
+  global.py.json
+  gui.json
+  separated-library-storage.json        Remembered books-root identities
+  ...
 ```
 
-To run just the storage regression module, use:
+The selected database folder holds library databases/state, not all application
+settings. Library preference backups, OPF files, covers, formats, extra files,
+and trash remain associated with the managed books filesystem. SQLite rebuilds,
+notes and search state follow `dbpath`; they are not redirected to the NAS.
+
+### Configuration contract
+
+New libraries have a version-1 books marker with an absolute
+`database_directory`, unique `storage_id`, and, after database creation, boolean
+`initialized: true`. The local ownership marker must match the storage ID.
+The per-user registry remembers the same configuration under the books path,
+so a disconnected share cannot masquerade as a new empty ordinary library.
+
+Configuration validation rejects JSON `null`, unsupported/incorrectly typed
+versions, nonabsolute database paths, malformed IDs/initialization flags,
+nested/equal roots, conflicting databases in the books folder, and mismatched
+ownership. Windows comparisons account for case-insensitive path spelling;
+different drives or a UNC books root plus a local database drive are allowed.
+Legacy version-1 resolver configurations without optional ID/initialized fields
+remain readable for compatibility; GUI creation always writes ownership IDs.
+
+A missing initialized database fails closed. Corrupt or mismatched markers do
+not trigger ordinary-library initialization. Preserve both markers and the
+per-user registry when backing up a split installation. If the registry is
+lost **and** the remote marker is inaccessible, the application cannot infer the
+intended library type from an otherwise empty path.
+
+## Creation, reopening and switching
+
+1. Connect the books storage through the operating system's normal file access.
+2. In the first-run wizard, or **Switch/create library → Create an empty
+   library**, choose an empty books folder and enable separate local database
+   storage. Select a separate empty, writable local database folder.
+3. Creation reserves the local folder, creates the books marker exclusively,
+   initializes normal Calibre SQLite metadata locally, and records completion.
+   It does not relocate an existing `metadata.db` or create an Indexed Library.
+4. Import through normal Calibre commands. Books receive Calibre's usual
+   author/title directories, format names, covers and OPF sidecars. Existing
+   arbitrary NAS folders are not indexed in place.
+5. To reopen or switch, select the **books folder**, not the database folder.
+   Discovery resolves its local database. Selecting the ownership-marked local
+   database folder as an ordinary library is rejected.
+
+Existing ordinary libraries are not converted by this creation flow. To adopt
+separated storage, create a new split library and use Calibre's normal copy/move
+between libraries. Whole-library relocation moves the books root and marker
+while retaining the local database; the former path stays remembered as
+unavailable. Automatic relocation of the local database directory or migration
+between operating systems is not a Phase 1 workflow.
+
+The obsolete `calibre.library.database2.LibraryDatabase2` implementation rejects
+split roots before creating files. Plugins must use the current
+`calibre.db.legacy.LibraryDatabase` compatibility API or the cache API. Indexed
+Library GUI actions are retired; historical modules are not this architecture.
+Conflicting `CALIBRE_OVERRIDE_DATABASE_PATH` overrides are rejected for split
+libraries rather than silently selecting another database.
+
+## SMB/GVfs compatibility and platforms
+
+Calibre file management consumes **filesystem paths**, not SMB URLs. Select a
+connected share through the desktop folder picker. Pasted `smb://`, `file://`,
+or web URLs are rejected before they can become accidental local directories.
+No automatic share connection, remapping, or substitution of a permanent mount
+is performed.
+
+| Platform | Books path | Phase 1 evidence and caveats |
+| --- | --- | --- |
+| Linux | Desktop-connected GVfs SMB path, commonly below `/run/user/<uid>/gvfs/`, or another accessible filesystem path | User GUI integration passed. No kernel CIFS/fstab mount is required. GVfs paths are tied to the user session and may change. |
+| macOS | Finder-connected SMB volume exposed as a filesystem path, commonly under `/Volumes/` | Path/IO code remains portable; no macOS GUI or actual SMB outage testing was performed. Volume naming, permissions and case behavior need manual qualification. |
+| Windows | UNC share path or accessible drive path, with SQLite on a local drive | Windows drive/UNC/case validation is covered by portable path tests. Actual Windows SMB behavior is untested. Existing Calibre path-length and file-sharing restrictions still apply. |
+
+The local database folder must genuinely be local; the picker does not prove
+filesystem locality or network SQLite-locking reliability. Choose the share as
+books storage only. No `/mnt/mediapool` fallback or other fixed mount is required.
+
+Marker creation uses exclusive direct creation, retaining collision protection.
+Completion uses a direct, existing-file-only write with flush/fsync. This avoids
+hard links and temporary-file replacement renames that were rejected with
+`EPERM` on GVfs SMB. The design follows normal Calibre cover/OPF direct-write
+behavior; it does not rewrite normal book management or restore Indexed mode.
+Marker writes are not atomic. Interrupted writes fail closed; recovery may
+require restoring the marker configuration after checking the local database.
+
+## Operations and integrity safeguards
+
+- Imports and cache write APIs validate storage before modifying managed data.
+  Format import also checks under its own write lock.
+- Title/author changes retain normal file moves. Local metadata and author-note
+  transactions roll back failed changes when no filesystem change completed;
+  caches and pending backup state are restored from the already-open local DB.
+- An internal, thread-local recovery context permits local cache reload while
+  books storage is unavailable. It does not open a replacement database or
+  bypass guards in another thread. It is not an offline-write API for plugins.
+- Completed moves/cover writes retain corresponding local paths/flags if a
+  later storage probe fails. Bulk requests can partially complete and report
+  failure without rolling successful mappings back to nonexistent paths.
+- Strict book/format probes propagate permission, stale-path and I/O failures.
+  Missing-looking storage does not authorize deletion of registered formats or
+  book records. Explicit database-only format removal remains a repair action.
+- Existing-format replacement in a split library must stage and replace safely;
+  denied staging/unsafe replacement does not fall back to truncating a good
+  original. Ordinary libraries retain their existing replacement policy.
+- Library maintenance ignores the books marker, checks storage before scanning,
+  and reports unavailable registered book folders as errors rather than offering
+  missing-format repairs for those folders.
+- Startup, including `--with-library`, does not recreate known disconnected
+  roots. An outage during opening a known split library aborts instead of
+  offering a new empty library. Closing remains possible during an outage.
+- Pending OPF backups survive failures and their worker retries after recovery.
+  Transient storage read errors do not persist false failed page counts; scans
+  remain pending for a subsequent scan/restart.
+
+When the same path and identity are accessible again, API operations can resume
+without reopening. Clean close/reopen retains existing books and metadata. A
+changed path/identity is not guessed, auto-remounted or silently substituted.
+
+## Backup, restore and maintenance
+
+Back up the local databases/notes and managed books as one logical library,
+including their markers and the local application registry. For filesystem
+backups, use a consistent snapshot or close Calibre; independently timed copies
+of live SQLite and remote files are not a consistent distributed snapshot.
+
+Normal database backup and rebuild-from-OPF use the local database location;
+rebuild preserves a local pre-restore database and recovers local note data.
+The SQLite SQL dump/rebuild feature requires a runtime providing `apsw.shell`.
+
+Whole-application export discovery includes separated and ordinary libraries
+and deduplicates resolved databases. Unavailable libraries are omitted, as for
+ordinary libraries: verify the exported library selection before relying on a
+backup. Portable archive export includes book data, covers, metadata and notes.
+Archive import restores an **ordinary combined library**, not machine-specific
+split markers. Configuration restoration updates current/legacy preferences and
+removes stale split mappings for imported ordinary destinations, preserving
+unselected mappings. Create a new split library and copy/move books if a
+separated layout is required after archive import.
+
+## Security and known limitations
+
+Markers and storage are trusted configuration, not a signed manifest or a
+sandbox. A marker supplies a local database path. Do not open split libraries
+from untrusted shares or permit untrusted edits to markers/databases. Legacy
+markers without IDs offer weaker ownership checks. Normal plugin/raw-SQL/file
+access outside managed APIs is outside these safeguards.
+
+Only one active writer should manage a library. Independent local SQLite copies
+on different computers do not coordinate simultaneous writes to shared books.
+Sharing one NAS books tree between independent databases/writers is unsupported.
+
+The NAS and local SQLite are not a distributed atomic transaction. An interrupted
+move/delete can leave partial filesystem work requiring inspection. Bulk
+requests can retain completed metadata/file changes while reporting a later
+failure. A new import can retain an incomplete newly created record for retry.
+Direct cover/OPF/marker writes are not guaranteed atomic. OS/GVfs calls can block
+until their own timeouts; Phase 1 adds no timeout/watchdog or automatic remount.
+
+Untested scenarios include actual network-disconnection/power-loss behavior,
+concurrent multi-client access, broad third-party plugin compatibility, and
+actual macOS/Windows GUI/SMB qualification. Conversion pipelines and every
+maintenance/plugin workflow have not been individually exercised on real SMB.
+Automated outage injection is not evidence that all physical failure modes are
+atomic or recoverable without manual inspection.
+
+## Verification and local baseline
+
+The relevant regression suites are the complete database and database CLI
+suites. Coverage includes ordinary-library compatibility, creation/reopen,
+imports, metadata/notes, covers, moves/trash, backup/export/restore, configuration
+validation, local auxiliary DB placement, SQLite integrity/foreign-key checks,
+and missing/permission/stale/disconnected storage simulations.
+
+Run from this checkout using the existing runtime, with a **fresh disposable**
+configuration, cache, data/Trash, and temporary directories. This example uses
+Linux and the installed development runtime; recycler isolation on other
+platforms requires separate qualification:
 
 ```sh
-CALIBRE_DEVELOP_FROM="$PWD/src" QT_QPA_PLATFORM=offscreen \
-  /opt/calibre/calibre-debug -c 'import unittest; from calibre.db.tests import test_separated_storage; unittest.main(test_separated_storage)'
+phase1_test_root=$(mktemp -d /tmp/calibre-phase1.XXXXXX)
+export CALIBRE_CONFIG_DIRECTORY="$phase1_test_root/config"
+export CALIBRE_CACHE_DIRECTORY="$phase1_test_root/cache"
+export CALIBRE_TEMP_DIR="$phase1_test_root"
+export XDG_DATA_HOME="$phase1_test_root/data"
+export XDG_CACHE_HOME="$phase1_test_root/xdg-cache"
+export QT_QPA_PLATFORM=offscreen
+CALIBRE_DEVELOP_FROM="$PWD/src" /opt/calibre/calibre-debug -c \
+  'import unittest; from calibre.db.tests.main import find_tests; r = unittest.TextTestRunner().run(find_tests()); raise SystemExit(not r.wasSuccessful())'
+CALIBRE_DEVELOP_FROM="$PWD/src" /opt/calibre/calibre-debug -c \
+  'import unittest; from calibre.db.cli.tests import find_tests; r = unittest.TextTestRunner().run(find_tests()); raise SystemExit(not r.wasSuccessful())'
 ```
 
-Verification on 2026-11-08 with `/opt/calibre/calibre-debug`: the final complete
-`calibre.db.tests` suite ran **165 tests with zero failures/errors and 3 skips**
-(two SQL dump/rebuild cases requiring the unavailable APSW shell and one
-Windows-only filesystem case). All modified Python files parsed successfully,
-and `git diff --check` passed. An earlier date-search test failure was corrected
-by constructing its calendar-date fixtures in the local timezone. One
-intermediate suite rerun exceeded its diagnostic timeout; the final rerun
-completed in 93.946 seconds. These results do not establish real NAS or reader
-scanner compatibility.
+Final verification on 2026-11-08:
 
-### SMB-compatible marker initialization
+| Suite/check | Result |
+| --- | --- |
+| Complete database suite | 211 tests, zero failures/errors, three skips |
+| Complete database CLI suite | 37 tests, zero failures/errors, no skips |
+| Final-review regressions (included in database suite) | 16 tests passed |
+| Outage/recovery regressions (included in database suite) | 24 tests passed |
+| Metadata, notes and FTS SQLite databases | Integrity and foreign-key checks passed on disposable libraries |
+| Source verification | Changed Python files parsed; `git diff --check` passed |
 
-The separated-storage marker writer originally introduced operations beyond
-normal managed-library writes: creation published a temporary file using
-`os.link()`, and initialization completed with a temporary-file `os.replace()`.
-The reported GVfs SMB failure was `EPERM` on the latter. Support for ordinary
-SMB file writes does not establish support for either marker operation.
-Calibre's existing OPF backup (`DB.write_backup`) and unprocessed cover writes
-open their destination directly; they do not require that publication pattern.
+The three skips are one Windows-only filesystem test and two SQL dump/rebuild
+tests requiring `apsw.shell`, which the installed runtime omits. Initial review
+regressions demonstrated the null-marker, maintenance, export discovery,
+obsolete-backend and case-sensitive Windows nesting defects before the fixes.
+The first CLI run exposed its use of the OS Trash; the successful final run
+isolated XDG data/Trash as well as configuration/cache/temp storage.
 
-Creation now uses exclusive direct file creation (`open(..., 'x')`) and completion
-writes the already-validated marker directly (`open(..., 'w')`). Flush/fsync,
-identity validation, exclusive ownership, the local SQLite database, and normal
-book management remain in place. Existing marker version/layout is unchanged.
-This removes both new link/rename requirements, without requiring a different
-SMB connection, a kernel CIFS mount, or a permanent mount such as `/mnt/mediapool`.
-It does not convert an `smb://` URL into an unrelated local path.
+The annotated tag identifies the reviewed source and documentation together.
+It is suitable as the Phase 2 foundation subject to the limits above; it is not
+universal filesystem/platform certification. No production library, existing
+GUI test library, mount or service was changed or disconnected. No real outage
+was induced. The tag is local; nothing is pushed without user approval.
 
-These marker writes are not atomic replacements. If a write is interrupted,
-a malformed or mismatched marker is rejected rather than interpreted as an
-ordinary library or permission to create a fresh database. The registry is
-updated only after the marker write succeeds. Recovery from an interrupted
-marker write requires checking/restoring its configuration, not moving books
-or discarding the database.
+## Phase 2 boundary
 
-Regressions simulate `EPERM` for link, rename, and replacement operations in the
-marker writer, and verify creation, completion, reopen, and normal managed-book
-operations. They also cover exclusive-create races, changed ownership, and an
-interrupted initialization write. The creation and completion tests both fail
-with the reported permission error against the previous implementation.
-All tests use temporary directories; an actual GVfs SMB manual retry remains
-necessary before claiming that the reported environment has been verified.
-
-Fix validation on 2026-11-08: the storage regression module ran 35 tests with
-zero failures/errors and one APSW-shell skip. The complete database suite ran
-171 tests in 90.201 seconds with zero failures/errors and the same three runtime/
-platform skips described above. Modified Python files parsed successfully and
-`git diff --check` passed. No production library or NAS share was accessed.
-
-## NAS disconnection and recovery milestone
-
-User-reported SMB integration passed PDF, EPUB and CBZ import, metadata updates,
-and restart persistence before this milestone. Outage validation here uses
-only disposable libraries and injected filesystem failures. It never accesses
-those existing GUI test libraries or changes a NAS, DAS, SMB connection, mount,
-or production service.
-
-### Safeguards added
-
-- Marker discovery opens the marker directly instead of using an existence
-  probe that can hide permission, stale-handle, or I/O errors. A broken marker
-  symlink also fails closed. GUI startup validates configured paths even when
-  the local registry has not yet learned the identity. An outage during backend
-  startup aborts a known separated library rather than offering an empty-library
-  fallback. The command-line library selector validates before making folders.
-- Marker completion opens only an existing file: disconnection after validation
-  cannot recreate its marker in an empty underlying mountpoint. Direct writes
-  remain in use; no hard-link or replacement-rename requirement is restored.
-- Registered book/format paths use strict filesystem probes. Unavailable paths
-  cannot be mistaken for successful deletion. A missing book folder containing
-  registered formats or a cover leaves its database record intact and reports
-  an error. Explicit database-only format removal remains available for repair.
-- Separated metadata updates use local SQLite/notes transactions. If a title or
-  author move fails before a filesystem change completes, database values and
-  cached metadata are restored, including author notes and pending OPF work.
-  A narrowly scoped, thread-local recovery context reloads the already-open
-  local database even while the NAS marker is unavailable. It neither opens a
-  replacement database nor disables storage checks for other threads.
-- Completed book moves and cover writes retain their corresponding local paths
-  and flags if the next NAS check fails. Bulk operations retain successful
-  mappings and report partial failure instead of rolling those mappings back
-  and stranding files that were already moved.
-- Replacing an existing format in a separated library must use a safe staging
-  and replacement operation. Permission/I/O errors do not fall back to
-  truncating the original file. If the filesystem cannot safely replace that
-  file, the operation fails and the original stays intact. Ordinary libraries
-  retain their existing replacement policy.
-- Transient storage failures retain pending OPF backups and do not kill the
-  metadata backup worker. Failed page-count reads do not persist a false failed
-  count; pending scan work remains for a subsequent scan or restart.
-
-### Recovery expectations and limits
-
-When the same path and storage identity become readable again, ordinary API
-operations can resume without reopening the library. A clean close/reopen also
-retains books, formats, covers and metadata. A different identity is rejected;
-no automatic path guessing or substitution of a permanent mount takes place.
-
-Tests inject missing files, `EACCES`, `EPERM`, `ESTALE`, `ENOTCONN`, and `EIO`,
-including cases where the marker remains readable but individual book paths
-fail. They cover startup, import/format replacement, metadata and author-note
-rollback, deletion, interrupted initialization, background work, successful
-moves followed by disconnection, partial bulk moves, close/reopen, and database
-integrity after recovery.
-
-These checks cannot turn remote filesystem operations plus local SQLite into
-a distributed atomic transaction. An interrupted move/delete may leave partial
-filesystem work requiring inspection; a partially completed bulk request may
-retain metadata changes for completed work. A new import that loses storage
-after its book record was created may retain an incomplete record for retry.
-Interrupted direct cover/OPF/marker writes are not guaranteed atomic. Malformed
-or mismatched markers fail closed rather than initialize a replacement database.
-No filesystem call timeout is imposed: an OS/GVfs call can still block until
-its own timeout. A changed GVfs path must be reselected; recovery does not remap
-shares automatically. Actual outage behavior on Linux/macOS/Windows remains
-subject to each filesystem/client; automated tests simulate failures and are
-not production outage testing.
-
-Milestone verification on 2026-11-08 using the existing `/opt/calibre` runtime
-with this checkout's source: all **24 outage/recovery tests passed**. The final
-complete `calibre.db.tests` run executed **195 tests in 112.418 seconds**, with
-zero failures/errors and three skips (one Windows-only case and two SQL rebuild
-cases requiring the unavailable APSW shell). Read-only SQLite integrity checking
-also passed after simulated outage/recovery. `git diff --check` and parsing of
-all changed Python files passed. Initial regressions reproduced lost book
-records, truncated replacement bytes, and prematurely committed title metadata;
-the final suite verifies those cases retain the original data.
-
-Run the targeted outage suite with:
-
-```sh
-CALIBRE_DEVELOP_FROM="$PWD/src" QT_QPA_PLATFORM=offscreen \
-  /opt/calibre/calibre-debug -c 'import unittest; from calibre.db.tests import test_separated_storage_recovery as tests; unittest.main(tests)'
-```
-
-Full-suite validation used a fresh disposable Calibre configuration, cache, and
-temporary-directory root. Existing local/NAS GUI test libraries and production
-storage/services were neither inspected nor modified for this milestone.
+Phase 2 may build disposable Komga/Kavita views using the normal metadata and
+resolved managed-book paths. It must leave source books authoritative and must
+not reintroduce Indexed Library semantics. Preview and explicit sync come
+before automatic behavior. Missing/unavailable sources must refuse destructive
+cleanup. Output ownership manifests, atomic manifest updates, collision handling,
+series/collection ordering, user-file protection and deletion without following
+links are required. Actual reader/container path visibility and Linux/macOS/
+Windows link permissions must be validated before claiming reader support.
+No reader link tree, sync UI or reader integration is implemented in Phase 1.

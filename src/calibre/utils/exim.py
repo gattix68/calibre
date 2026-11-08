@@ -190,15 +190,17 @@ def all_known_libraries() -> dict[str, int]:
     paths = set(lus)
     if prefs['library_path']:
         paths.add(prefs['library_path'])
-    added = {}
+    from calibre.db.separated_storage import resolve_database_path
+
+    added, databases = {}, []
     for path in paths:
-        mdb = os.path.join(path, 'metadata.db')
-        if os.path.exists(mdb):
-            for c in added:
-                if samefile(mdb, os.path.join(c, 'metadata.db')):
-                    break
-            else:
-                added[path] = lus.get(path, 1)
+        try:
+            mdb = resolve_database_path(path)
+        except (OSError, ValueError):
+            continue  # As with ordinary libraries, unavailable libraries are omitted.
+        if os.path.isfile(mdb) and not any(samefile(mdb, previous) for previous in databases):
+            added[path] = lus.get(path, 1)
+            databases.append(mdb)
     return added
 
 
@@ -592,7 +594,9 @@ class Importer:
                     os.makedirs(os.path.dirname(path))
                     with open(path, 'wb') as dest:
                         shutil.copyfileobj(f, dest)
-        gpath = os.path.join(base_dir, 'global.py')
+        gpath = os.path.join(base_dir, 'global.py.json')
+        if not os.path.exists(gpath):
+            gpath = os.path.join(base_dir, 'global.py')
         try:
             with open(gpath, 'rb') as f:
                 raw = f.read()
@@ -608,10 +612,22 @@ class Importer:
         raw = c.src
         if not isinstance(raw, bytes):
             raw = raw.encode('utf-8')
-        with open(gpath, 'wb') as f:
-            f.write(raw)
+        # Current preferences take precedence over the legacy file. Update both
+        # so the restored GUI cannot silently reopen a source-machine library.
+        for name in ('global.py', 'global.py.json'):
+            with open(os.path.join(base_dir, name), 'wb') as f:
+                f.write(raw)
         gprefs = JSONConfig('gui', base_path=base_dir)
         gprefs['library_usage_stats'] = dict(library_usage_stats)
+        # Archives restore ordinary libraries. A source-machine split mapping
+        # for a reused destination path would otherwise block their reopening.
+        registry_path = os.path.join(base_dir, 'separated-library-storage.json')
+        if os.path.exists(registry_path):
+            storage = JSONConfig('separated-library-storage', base_path=base_dir)
+            destinations = {os.path.normcase(os.path.abspath(p)) for p in library_usage_stats}
+            for path in tuple(storage):
+                if os.path.normcase(os.path.abspath(path)) in destinations:
+                    del storage[path]
 
 
 def import_data(
