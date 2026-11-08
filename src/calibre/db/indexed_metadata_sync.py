@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
 from typing import Any, Callable
 
 
@@ -158,3 +160,44 @@ def plan_embedded_metadata_sync(database_metadata: Any, embedded_by_format: dict
     for field, value in updates.items():
         setattr(updated, field, value)
     return updated, {'updates': updates, 'conflicts': conflicts}
+
+
+def apply_to_indexed_file_atomically(file_path: str, transform: Callable[[Any], Any]) -> Any:
+    """Transform a temporary copy and atomically replace the same source path.
+
+    The source must remain the same regular, non-symlink file throughout the
+    operation. Failed transforms leave the original bytes untouched.
+    """
+    path = os.path.abspath(file_path)
+    if os.path.islink(path) or not os.path.isfile(path):
+        raise OSError(f'Indexed source file is missing or unsafe: {path}')
+    before = os.stat(path, follow_symlinks=False)
+    fd, temporary_path = tempfile.mkstemp(
+        prefix='.calibre-indexed-', suffix=os.path.splitext(path)[1],
+        dir=os.path.dirname(path),
+    )
+    try:
+        with os.fdopen(fd, 'w+b') as target, open(path, 'rb') as source:
+            shutil.copyfileobj(source, target)
+            target.flush()
+            target.seek(0)
+            answer = transform(target)
+            target.flush()
+            os.fsync(target.fileno())
+        current = os.stat(path, follow_symlinks=False)
+        if (current.st_dev, current.st_ino, current.st_size, current.st_mtime_ns) != (
+            before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns
+        ):
+            raise RuntimeError('Indexed source file changed during metadata update')
+        os.replace(temporary_path, path)
+        return answer
+    except BaseException:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.remove(temporary_path)
+        except OSError:
+            pass
+        raise
