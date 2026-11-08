@@ -101,3 +101,19 @@ def compare_metadata(
                 'embedded': embedded_value,
             }
     return differences
+
+
+def merge_embedded_metadata(database_metadata: Any, embedded_metadata: Any) -> tuple[Any, dict[str, dict[str, Any]]]:
+    """Return a cloned database Metadata object with external differences applied.
+
+    The original database object and embedded metadata object are never
+    modified. The caller remains responsible for persisting the returned
+    Metadata object through Calibre's normal database API.
+    """
+    differences = compare_metadata(database_metadata, embedded_metadata)
+    if not differences:
+        return database_metadata.deepcopy(), {}
+    updated = database_metadata.deepcopy()
+    for field, change in differences.items():
+        setattr(updated, field, change['embedded'])
+    return updated, differences
