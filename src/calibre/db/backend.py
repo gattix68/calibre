@@ -920,6 +920,13 @@ class DB:
             config['source_roots'], supported_metadata_reader_formats()
         )
 
+    def plan_indexed_library_registration(self) -> dict[str, Any]:
+        """Discover source files and return a non-mutating registration plan."""
+        scan = self.scan_indexed_library_sources()
+        from calibre.db.indexed_library_registration import build_indexed_registration_plan
+
+        return build_indexed_registration_plan(scan)
+
     def indexed_metadata_capabilities(self, book_id: int) -> dict[str, dict[str, Any]]:
         """Return active Calibre metadata handlers for this book's formats.
 
