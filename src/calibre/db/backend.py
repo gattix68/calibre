@@ -3085,6 +3085,14 @@ class DB:
         deleted or moved is left in the database. Returns a map of book id to
         error details for such books.
         """
+        if getattr(self, 'is_indexed_library', False):
+            # Removing a book from Calibre must never delete or relocate its
+            # externally managed source directory. The indexed_files foreign
+            # key removes only the database mapping; source files remain.
+            with self.conn:
+                self.executemany('DELETE FROM books WHERE id=?', [(book_id,) for book_id in path_map])
+            return {}
+
         import traceback
 
         self.ensure_trash_dir()
