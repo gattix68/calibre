@@ -151,9 +151,9 @@ class IndexedLibraryCreationDialog(QDialog):
             'Registration errors: {registration_errors}\\n'
             'Scan errors: {errors}\n'
             'Skipped entries: {skipped}\n\n'
-            'No source files were changed. This milestone creates the database '
-            'and verifies discovery; registering books and opening the library '
-            'in the Calibre book list are the next implementation steps.'
+            'No source files were changed. Unambiguous discovered books have been '
+            'registered in the Indexed Library database. Opening and displaying '
+            'those records in the Calibre book list is the next step.'
         ).format(
             books=plan['book_count'], files=plan['file_count'],
             review=plan['review_count'], registered=registration['registered_count'],
