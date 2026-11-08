@@ -2707,6 +2707,82 @@ class Cache:
         self.backend.refresh_indexed_file_stat(book_id, fmt)
         return differences
 
+    @quiet_write_api
+    def sync_indexed_library_metadata(self) -> dict[str, Any]:
+        """Synchronize metadata from changed indexed files into Calibre.
+
+        All changed formats for a book are read before any database update.
+        If formats disagree on a field, that field is left unchanged and the
+        conflict is reported. Source files are never written by this method.
+        """
+        if not getattr(self.backend, 'is_indexed_library', False):
+            raise RuntimeError('Library synchronization requires an Indexed Library')
+
+        scan = self.backend.find_modified_indexed_files()
+        by_book: dict[int, list[dict[str, Any]]] = {}
+        for record in scan['modified']:
+            by_book.setdefault(record['book_id'], []).append(record)
+
+        result: dict[str, Any] = {
+            'scanned': len(scan['modified']) + len(scan['missing']) + len(scan['unchanged']),
+            'modified': len(scan['modified']),
+            'missing': scan['missing'],
+            'unchanged': len(scan['unchanged']),
+            'updated_books': [],
+            'updated_fields': {},
+            'conflicts': {},
+            'errors': [],
+        }
+
+        for book_id, records in by_book.items():
+            embedded_by_format: dict[str, Any] = {}
+            readable_records: list[dict[str, Any]] = []
+            for record in records:
+                try:
+                    embedded_by_format[record['format']] = self.backend.read_indexed_format_metadata(
+                        book_id, record['format']
+                    )
+                    readable_records.append(record)
+                except Exception as err:
+                    result['errors'].append({
+                        'book_id': book_id, 'format': record['format'], 'error': str(err),
+                    })
+
+            if not embedded_by_format:
+                continue
+
+            from calibre.db.indexed_metadata_sync import plan_embedded_metadata_sync
+
+            current = self.get_metadata(book_id)
+            updated, plan = plan_embedded_metadata_sync(current, embedded_by_format)
+            if plan['updates']:
+                update_title = 'title' in plan['updates']
+                update_authors = 'authors' in plan['updates']
+                self.set_metadata(
+                    book_id, updated, set_title=update_title, set_authors=update_authors
+                )
+                result['updated_books'].append(book_id)
+                result['updated_fields'][str(book_id)] = sorted(plan['updates'])
+
+            if plan['conflicts']:
+                result['conflicts'][str(book_id)] = plan['conflicts']
+                # Keep the stat baseline unchanged for this book so unresolved
+                # conflicts remain visible on the next manual synchronization.
+                continue
+
+            for record in readable_records:
+                try:
+                    self.backend.refresh_indexed_file_stat(book_id, record['format'])
+                except Exception as err:
+                    result['errors'].append({
+                        'book_id': book_id, 'format': record['format'], 'error': str(err),
+                    })
+
+        result['updated_book_count'] = len(result['updated_books'])
+        result['conflict_count'] = sum(len(fields) for fields in result['conflicts'].values())
+        result['error_count'] = len(result['errors'])
+        return result
+
     def _do_add_format(self, book_id: int, fmt: str, stream: str | IO[bytes], name: str | None = None, mtime: float | None = None) -> tuple[int, str]:
         path = self._get_book_path(book_id, unsafe=True)
         if path is None:
