@@ -835,6 +835,27 @@ class DB:
                 (book_id, fmt, full_path, file_stat.st_size, file_stat.st_mtime_ns),
             )
 
+    def refresh_indexed_file_stat(self, book_id: int, fmt: str) -> None:
+        """Record the current stat after a successful metadata synchronization."""
+        if not getattr(self, 'is_indexed_library', False):
+            raise RuntimeError('File stat refresh requires an Indexed Library')
+        row = self.conn.execute(
+            'SELECT file_path FROM indexed_files WHERE book_id=? AND format=? COLLATE NOCASE',
+            (book_id, fmt.strip().lstrip('.').upper()),
+        ).fetchone()
+        if row is None:
+            raise NoSuchFormat(f'Record {book_id} has no indexed format: {fmt}')
+        path = os.path.abspath(row[0])
+        if os.path.islink(path) or not os.path.isfile(path):
+            raise OSError(f'Indexed source file is missing or unsafe: {path}')
+        stat = os.stat(path, follow_symlinks=False)
+        with self.conn:
+            self.conn.execute(
+                'UPDATE indexed_files SET file_size=?, modified_time_ns=? '
+                'WHERE book_id=? AND format=? COLLATE NOCASE',
+                (stat.st_size, stat.st_mtime_ns, book_id, fmt.strip().lstrip('.').upper()),
+            )
+
     def find_modified_indexed_files(self, book_id: int | None = None) -> dict[str, list[dict[str, Any]]]:
         """Find indexed files changed or missing since their last recorded stat.
 
