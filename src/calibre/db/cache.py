@@ -2770,14 +2770,18 @@ class Cache:
                 os.path.basename(formats[0]['file_path'])
             )[0]
             mi = Metadata(str(title))
+            metadata_errors = []
             for field, value in metadata_values.items():
                 try:
                     mi.set(field, value)
                 except Exception as err:
-                    result['errors'].append({
-                        'metadata_source': book.get('metadata_source'),
-                        'field': field, 'error': str(err),
-                    })
+                    metadata_errors.append({'field': field, 'error': str(err)})
+            if metadata_errors:
+                result['errors'].append({
+                    'metadata_source': book.get('metadata_source'),
+                    'metadata_errors': metadata_errors,
+                })
+                continue
             if not mi.authors:
                 mi.authors = [_('Unknown')]
 
@@ -2796,7 +2800,8 @@ class Cache:
                     source_path = os.path.abspath(item['file_path'])
                     self.backend.register_indexed_format(book_id, fmt, source_path)
                     fname = os.path.splitext(os.path.basename(source_path))[0]
-                    size = int(item.get('file_size') or os.path.getsize(source_path))
+                    stat = os.stat(source_path, follow_symlinks=False)
+                    size = stat.st_size
                     self._record_format_added(book_id, fmt, fname, size)
 
                 self._update_last_modified((book_id,))
