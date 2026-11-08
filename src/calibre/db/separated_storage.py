@@ -22,6 +22,8 @@ def resolve_database_path(library_path: str) -> str:
     config_path = os.path.join(root, CONFIG_NAME)
     if not os.path.isfile(config_path):
         return default
+    if not os.path.isdir(root):
+        raise FileNotFoundError(f'Books root is unavailable: {root}')
     with open(config_path, encoding='utf-8') as stream:
         config = json.load(stream)
     if not isinstance(config, dict) or config.get('version') != 1:
@@ -34,4 +36,8 @@ def resolve_database_path(library_path: str) -> str:
         raise FileNotFoundError(f'Local database directory is unavailable: {database_dir}')
     if os.path.samefile(database_dir, root):
         raise ValueError('Separated database directory must differ from books root')
+    if os.path.exists(default):
+        raise FileExistsError('Books root already contains metadata.db; refusing ambiguous database selection')
+    if not os.access(database_dir, os.W_OK):
+        raise PermissionError(f'Database directory is not writable: {database_dir}')
     return os.path.join(database_dir, 'metadata.db')
