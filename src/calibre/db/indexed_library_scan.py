@@ -72,6 +72,8 @@ def scan_indexed_source_roots(
             'format': fmt.upper(),
             'file_size': st.st_size,
             'modified_time_ns': st.st_mtime_ns,
+            'device_id': st.st_dev,
+            'inode': st.st_ino,
             'metadata': None,
         }
         try:
@@ -84,6 +86,8 @@ def scan_indexed_source_roots(
                 raise OSError('Source file changed during discovery')
             record['file_size'] = opened.st_size
             record['modified_time_ns'] = opened.st_mtime_ns
+            record['device_id'] = opened.st_dev
+            record['inode'] = opened.st_ino
             with os.fdopen(fd, 'rb') as stream:
                 record['metadata'] = metadata_reader(stream, fmt)
         except Exception as err:
