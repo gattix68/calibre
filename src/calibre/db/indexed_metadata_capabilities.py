@@ -66,9 +66,17 @@ def metadata_capabilities_for_formats(
     is_disabled: Any = None,
 ) -> dict[str, dict[str, Any]]:
     """Return metadata-handler availability for a collection of formats."""
+    normalized_formats = sorted({str(x).lower().strip().lstrip('.') for x in formats if str(x).strip()})
+    if readers is None or writers is None or is_disabled is None:
+        from calibre.customize.ui import is_disabled as plugin_is_disabled
+        from calibre.customize.ui import metadata_readers, metadata_writers
+
+        readers = metadata_readers() if readers is None else readers
+        writers = metadata_writers() if writers is None else writers
+        is_disabled = plugin_is_disabled if is_disabled is None else is_disabled
     return {
-        str(fmt).lower().strip().lstrip('.').upper(): metadata_capabilities(
-            str(fmt), readers=readers, writers=writers, is_disabled=is_disabled
+        fmt.upper(): metadata_capabilities(
+            fmt, readers=readers, writers=writers, is_disabled=is_disabled
         )
-        for fmt in sorted({str(x).lower().strip().lstrip('.') for x in formats if str(x).strip()})
+        for fmt in normalized_formats
     }
