@@ -2676,6 +2676,37 @@ class Cache:
 
     _set_metadata = set_metadata
 
+    @quiet_write_api
+    def sync_indexed_format_metadata(self, book_id: int, fmt: str) -> dict[str, dict[str, Any]]:
+        """Apply non-null embedded metadata changes from one indexed format.
+
+        The original format file is only read. Calibre's normal metadata API
+        updates the database and its usual metadata backup. Indexed Library's
+        path guard prevents title/author changes from reorganizing the files.
+        """
+        if not getattr(self.backend, 'is_indexed_library', False):
+            raise RuntimeError('Metadata synchronization requires an Indexed Library')
+
+        embedded = self.backend.read_indexed_format_metadata(book_id, fmt)
+        current = self.get_metadata(book_id).deepcopy()
+        from calibre.db.indexed_metadata_sync import compare_metadata
+
+        differences = compare_metadata(current, embedded)
+        if not differences:
+            return {}
+
+        update_title = 'title' in differences
+        update_authors = 'authors' in differences
+        for field, change in differences.items():
+            setattr(current, field, change['embedded'])
+
+        # Do not force empty/null values into fields that the file format
+        # cannot represent. compare_metadata deliberately filters null values.
+        self.set_metadata(
+            book_id, current, set_title=update_title, set_authors=update_authors
+        )
+        return differences
+
     def _do_add_format(self, book_id: int, fmt: str, stream: str | IO[bytes], name: str | None = None, mtime: float | None = None) -> tuple[int, str]:
         path = self._get_book_path(book_id, unsafe=True)
         if path is None:
