@@ -863,12 +863,14 @@ class DB:
         file_stat = os.stat(full_path, follow_symlinks=False)
         with self.conn:
             self.conn.execute(
-                'INSERT INTO indexed_files(book_id, format, file_path, file_size, modified_time_ns) '
-                'VALUES (?, ?, ?, ?, ?) '
+                'INSERT INTO indexed_files(book_id, format, file_path, file_size, modified_time_ns, device_id, inode) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?) '
                 'ON CONFLICT(book_id, format) DO UPDATE SET '
                 'file_path=excluded.file_path, file_size=excluded.file_size, '
-                'modified_time_ns=excluded.modified_time_ns',
-                (book_id, fmt, full_path, file_stat.st_size, file_stat.st_mtime_ns),
+                'modified_time_ns=excluded.modified_time_ns, '
+                'device_id=excluded.device_id, inode=excluded.inode',
+                (book_id, fmt, full_path, file_stat.st_size, file_stat.st_mtime_ns,
+                 file_stat.st_dev, file_stat.st_ino),
             )
 
     def refresh_indexed_file_stat(self, book_id: int, fmt: str) -> None:
