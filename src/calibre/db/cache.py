@@ -2708,6 +2708,122 @@ class Cache:
         return differences
 
     @quiet_write_api
+    def register_indexed_library_plan(
+        self, plan: dict[str, Any], *, include_review: bool = False
+    ) -> dict[str, Any]:
+        """Create Calibre records for a reviewed plan without copying source files.
+
+        The external path mapping is authoritative. Calibre's normal data table
+        is populated so the library view can display formats and sizes, while a
+        synthetic internal path satisfies APIs that expect every book to have
+        a path. Indexed mode never creates that path on disk.
+        """
+        if not getattr(self.backend, 'is_indexed_library', False):
+            raise RuntimeError('Registration requires an Indexed Library')
+        if not isinstance(plan, dict) or not isinstance(plan.get('books'), list):
+            raise ValueError('A valid Indexed Library registration plan is required')
+
+        from calibre.db.indexed_library_config import load_indexed_library_config
+        if load_indexed_library_config(self.backend.library_path) is None:
+            raise RuntimeError('Indexed Library configuration is missing')
+
+        result: dict[str, Any] = {
+            'registered': [], 'skipped_review': [], 'already_registered': [],
+            'errors': [],
+        }
+        for book in plan['books']:
+            if not isinstance(book, dict):
+                result['errors'].append({'book': repr(book), 'error': 'Invalid book plan'})
+                continue
+            if book.get('requires_review') and not include_review:
+                result['skipped_review'].append(book.get('metadata_source'))
+                continue
+            formats = book.get('formats') or []
+            metadata_values = book.get('proposed_metadata') or {}
+            if not formats:
+                result['errors'].append({
+                    'metadata_source': book.get('metadata_source'),
+                    'error': 'No unambiguous formats available for registration',
+                })
+                continue
+
+            existing_paths = {
+                row[0] for row in self.backend.conn.execute(
+                    'SELECT file_path FROM indexed_files'
+                )
+            }
+            new_formats = [
+                item for item in formats
+                if os.path.abspath(item.get('file_path', '')) not in existing_paths
+            ]
+            if not new_formats:
+                result['already_registered'].append(book.get('metadata_source'))
+                continue
+            if len(new_formats) != len(formats):
+                result['errors'].append({
+                    'metadata_source': book.get('metadata_source'),
+                    'error': 'Some formats are already registered; refusing partial duplicate registration',
+                })
+                continue
+
+            title = metadata_values.get('title') or os.path.splitext(
+                os.path.basename(formats[0]['file_path'])
+            )[0]
+            mi = Metadata(str(title))
+            for field, value in metadata_values.items():
+                try:
+                    mi.set(field, value)
+                except Exception as err:
+                    result['errors'].append({
+                        'metadata_source': book.get('metadata_source'),
+                        'field': field, 'error': str(err),
+                    })
+            if not mi.authors:
+                mi.authors = [_('Unknown')]
+
+            book_id = None
+            try:
+                book_id = self.create_book_entry(
+                    mi, add_duplicates=True, apply_import_tags=False
+                )
+                # A non-empty logical path is required by several Calibre APIs.
+                # It is deliberately not a real directory and is never created.
+                logical_path = f'__indexed__/{book_id}'
+                self.fields['path'].table.set_path(book_id, logical_path, self.backend)
+
+                for item in new_formats:
+                    fmt = str(item['format']).strip().upper().lstrip('.')
+                    source_path = os.path.abspath(item['file_path'])
+                    self.backend.register_indexed_format(book_id, fmt, source_path)
+                    fname = os.path.splitext(os.path.basename(source_path))[0]
+                    size = int(item.get('file_size') or os.path.getsize(source_path))
+                    self._record_format_added(book_id, fmt, fname, size)
+
+                self._update_last_modified((book_id,))
+                self.format_metadata_cache.pop(book_id, None)
+                result['registered'].append({
+                    'book_id': book_id, 'title': str(title),
+                    'formats': [str(item['format']).upper() for item in new_formats],
+                })
+            except Exception as err:
+                if book_id is not None:
+                    try:
+                        self.remove_books((book_id,), permanent=True)
+                    except Exception as cleanup_err:
+                        result['errors'].append({
+                            'book_id': book_id,
+                            'error': f'{err}; cleanup also failed: {cleanup_err}',
+                        })
+                        continue
+                result['errors'].append({
+                    'metadata_source': book.get('metadata_source'), 'error': str(err),
+                })
+
+        result['registered_count'] = len(result['registered'])
+        result['error_count'] = len(result['errors'])
+        return result
+
+    @quiet_write_api
     def sync_indexed_library_metadata(self) -> dict[str, Any]:
         """Synchronize metadata from changed indexed files into Calibre.
 
