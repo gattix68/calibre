@@ -114,6 +114,15 @@ class IndexedMetadataReadTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 mod.read_embedded_metadata(str(root / 'missing.epub'), 'epub', metadata_reader=lambda *_: None)
 
+    def test_detects_size_and_mtime_changes(self):
+        from types import SimpleNamespace
+        unchanged = SimpleNamespace(st_size=100, st_mtime_ns=500)
+        changed_size = SimpleNamespace(st_size=101, st_mtime_ns=500)
+        changed_time = SimpleNamespace(st_size=100, st_mtime_ns=501)
+        self.assertFalse(mod.indexed_file_has_changed(100, 500, unchanged))
+        self.assertTrue(mod.indexed_file_has_changed(100, 500, changed_size))
+        self.assertTrue(mod.indexed_file_has_changed(100, 500, changed_time))
+
     def test_rejects_empty_format(self):
         with self.assertRaises(ValueError):
             mod.read_embedded_metadata('/unused.epub', ' . ', metadata_reader=lambda *_: None)
