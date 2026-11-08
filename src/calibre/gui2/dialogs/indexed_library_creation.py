@@ -117,13 +117,34 @@ class IndexedLibraryCreationDialog(QDialog):
             schema = resource_path('metadata_sqlite.sql', data=True).decode('utf-8')
             create_indexed_library(database, [source], schema)
             verify_indexed_library_complete(database)
+            from calibre.db.indexed_library_scan import (
+                scan_indexed_source_roots, supported_metadata_reader_formats,
+            )
+            from calibre.db.indexed_library_registration import build_indexed_registration_plan
+
+            scan = scan_indexed_source_roots(
+                [source], supported_metadata_reader_formats()
+            )
+            plan = build_indexed_registration_plan(scan)
         except Exception as err:
             self.status.setText(_('Creation failed; inspect the destination before retrying.'))
             error_dialog(self, _('Indexed Library creation failed'), str(err), show=True)
             return
-        self.status.setText(_('Indexed Library created and verified; opening remains disabled.'))
-        info_dialog(self, _('Indexed Library created'), _(
-            'The local Indexed Library database was created and verified. '
-            'Your ebook source was not scanned or modified. '
-            'Opening Indexed Libraries remains disabled until runtime safeguards are ready.'
-        ), show=True)
+        self.status.setText(_('Indexed Library created; source scan completed.'))
+        details = _(
+            'The Indexed Library database was created and verified.\\n\\n'
+            'Read-only scan results:\\n'
+            'Books discovered: {books}\\n'
+            'Files discovered: {files}\\n'
+            'Books needing metadata review: {review}\\n'
+            'Scan errors: {errors}\\n'
+            'Skipped entries: {skipped}\\n\\n'
+            'No source files were changed. This milestone creates the database '
+            'and verifies discovery; registering books and opening the library '
+            'in the Calibre book list are the next implementation steps.'
+        ).format(
+            books=plan['book_count'], files=plan['file_count'],
+            review=plan['review_count'], errors=len(scan['errors']),
+            skipped=len(scan['skipped']),
+        )
+        info_dialog(self, _('Indexed Library scan complete'), details, show=True)
