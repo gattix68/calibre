@@ -13,7 +13,7 @@ from calibre.utils.localization import _
 class IndexedLibraryAction(InterfaceAction):
     name = 'Indexed Library'
     action_spec = (
-        _('Indexed Library'), 'indexed-library.svg',
+        _('Indexed Library'), 'library.png',
         _('Create and manage an Indexed Library'), None,
     )
     action_add_menu = True
@@ -63,11 +63,12 @@ class IndexedLibraryAction(InterfaceAction):
         self.menu.clear()
         self.menu.addAction(self.create_indexed_action)
         self.menu.addSeparator()
-        inspect = self.menu.addAction(self.inspect_indexed_action)
-        inspect.setEnabled(self.is_indexed)
-        sync = self.menu.addAction(self.sync_indexed_action)
+        self.inspect_indexed_action.setEnabled(self.is_indexed)
+        self.menu.addAction(self.inspect_indexed_action)
+        sync = self.sync_indexed_action
         sync.setEnabled(self.is_indexed)
         sync.setToolTip(_('Scan configured source folders and reconcile renamed files'))
+        self.menu.addAction(sync)
 
     def create_indexed_library(self):
         from calibre.gui2.dialogs.indexed_library_creation import IndexedLibraryCreationDialog
