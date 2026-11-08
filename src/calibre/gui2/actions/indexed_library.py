@@ -4,7 +4,7 @@
 
 import os
 
-from qt.core import QAction, QIcon, QMenu, QToolButton
+from qt.core import QToolButton
 
 from calibre.gui2.actions import InterfaceAction
 from calibre.utils.localization import _
