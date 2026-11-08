@@ -66,9 +66,8 @@ class IndexedLibraryAction(InterfaceAction):
         inspect = self.menu.addAction(self.inspect_indexed_action)
         inspect.setEnabled(self.is_indexed)
         sync = self.menu.addAction(self.sync_indexed_action)
-        # Sync is enabled when its reconciliation implementation is available.
-        sync.setEnabled(False)
-        sync.setToolTip(_('File rename reconciliation is not yet available'))
+        sync.setEnabled(self.is_indexed)
+        sync.setToolTip(_('Scan configured source folders and reconcile renamed files'))
 
     def create_indexed_library(self):
         from calibre.gui2.dialogs.indexed_library_creation import IndexedLibraryCreationDialog
@@ -81,10 +80,38 @@ class IndexedLibraryAction(InterfaceAction):
         IndexedLibraryInspectionDialog(self.gui).exec()
 
     def sync_indexed_library(self):
-        # Kept as a distinct command so the menu contract remains stable.
-        from calibre.gui2 import info_dialog
+        if not self.is_indexed:
+            return
+        from calibre.gui2 import error_dialog, info_dialog
 
-        info_dialog(
-            self.gui, _('Sync Library'),
-            _('Indexed Library file reconciliation is not available yet.'), show=True,
+        try:
+            db = self.gui.current_db
+            result = db.new_api.sync_indexed_library_files()
+            db.commit()
+            self.update_library_identity()
+            try:
+                self.gui.library_view.model().refresh()
+            except Exception:
+                pass
+        except Exception as err:
+            error_dialog(
+                self.gui, _('Indexed Library synchronization failed'),
+                str(err), show=True,
+            )
+            return
+
+        renamed = result['renamed_count']
+        ambiguous = result['ambiguous_count']
+        unmatched = result['unmatched_count']
+        details = _(
+            'Indexed Library scan complete.\\n\\n'
+            'Renamed files reconciled: {renamed}\\n'
+            'Ambiguous matches (left unchanged): {ambiguous}\\n'
+            'Missing files without a safe match: {unmatched}\\n'
+            'Scan errors: {errors}\\n\\n'
+            'Original source files were not modified.'
+        ).format(
+            renamed=renamed, ambiguous=ambiguous, unmatched=unmatched,
+            errors=len(result.get('scan_errors', ())),
         )
+        info_dialog(self.gui, _('Indexed Library synchronization'), details, show=True)
