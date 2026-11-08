@@ -25,6 +25,17 @@ class IndexedSchemaTests(unittest.TestCase):
         self.assertEqual(len(mod.INDEXED_FILES_SCHEMA), 2)
         self.assertTrue(all(statement.strip() for statement in mod.INDEXED_FILES_SCHEMA))
 
+    def test_schema_initialization_is_idempotent(self):
+        db = self.make_db()
+        for statement in mod.INDEXED_FILES_SCHEMA:
+            db.execute(statement)
+        self.assertIsNotNone(db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='indexed_files'"
+        ).fetchone())
+        self.assertIsNotNone(db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='indexed_files_book_deleted'"
+        ).fetchone())
+
     def test_registers_multiple_formats_for_one_book(self):
         db = self.make_db()
         db.execute("INSERT INTO books(id, title) VALUES (1, 'Book')")
