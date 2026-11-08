@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import os
+import stat as stat_module
 from pathlib import Path
 from typing import Any, Callable
 
@@ -59,14 +60,14 @@ def scan_indexed_source_roots(
             for entry in entries:
                 visit(Path(entry.path), root)
             return
-        if not path.is_file():
+        if not stat_module.S_ISREG(st.st_mode):
             result['skipped'].append({'file_path': str(path), 'reason': 'not a regular file'})
             return
         fmt = path.suffix.lower().lstrip('.')
         if fmt not in formats:
             return
         record: dict[str, Any] = {
-            'file_path': str(path.resolve(strict=True)),
+            'file_path': str(path),
             'relative_path': str(path.relative_to(root)),
             'format': fmt.upper(),
             'file_size': st.st_size,
@@ -74,7 +75,16 @@ def scan_indexed_source_roots(
             'metadata': None,
         }
         try:
-            with path.open('rb') as stream:
+            fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
+            opened = os.fstat(fd)
+            if not stat_module.S_ISREG(opened.st_mode) or (
+                opened.st_dev, opened.st_ino
+            ) != (st.st_dev, st.st_ino):
+                os.close(fd)
+                raise OSError('Source file changed during discovery')
+            record['file_size'] = opened.st_size
+            record['modified_time_ns'] = opened.st_mtime_ns
+            with os.fdopen(fd, 'rb') as stream:
                 record['metadata'] = metadata_reader(stream, fmt)
         except Exception as err:
             record['error'] = str(err)
