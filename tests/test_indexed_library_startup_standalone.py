@@ -2,6 +2,7 @@
 """Isolated Indexed Library startup tests; no Calibre imports or NAS access."""
 import importlib.util
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -49,9 +50,23 @@ class IndexedLibraryStartupTests(unittest.TestCase):
             marker.write_text(json.dumps(cfg), encoding='utf-8')
             loaded = config_module.load_indexed_library_config(library)
             self.assertEqual(loaded, cfg)
-            with self.assertRaisesRegex(RuntimeError, 'not yet available'):
+            with self.assertRaisesRegex(RuntimeError, 'database is missing or invalid'):
                 config_module.check_indexed_library_startup(library)
-            self.assertFalse((library / 'metadata.db').exists())
+
+            dbpath = library / 'metadata.db'
+            with sqlite3.connect(dbpath) as db:
+                db.executescript('''
+                    CREATE TABLE books (id INTEGER PRIMARY KEY);
+                    CREATE TABLE data (id INTEGER PRIMARY KEY, book INTEGER, format TEXT);
+                    CREATE TABLE indexed_files (
+                        book_id INTEGER, format TEXT, file_path TEXT,
+                        file_size INTEGER, modified_time_ns INTEGER
+                    );
+                ''')
+            (library / 'indexed-library.complete').write_bytes(
+                b'indexed-library-complete-v1\\n'
+            )
+            config_module.check_indexed_library_startup(library)
 
             marker.write_text('{"mode":"invalid"}', encoding='utf-8')
             with self.assertRaises(config_module.InvalidIndexedLibraryConfig):
