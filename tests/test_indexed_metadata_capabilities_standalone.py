@@ -68,7 +68,11 @@ class IndexedMetadataCapabilitiesTests(unittest.TestCase):
         self.assertEqual(cbz['writers'], [])
 
     def test_capabilities_for_multiple_formats(self):
-        formats = mod.metadata_capabilities_for_formats(['EPUB', 'pdf', 'cbz', 'EPUB'])
+        formats = mod.metadata_capabilities_for_formats(
+            ['EPUB', 'pdf', 'cbz', 'EPUB'],
+            readers=self.readers, writers=self.writers,
+            is_disabled=lambda plugin: plugin.name in self.disabled,
+        )
         self.assertEqual(list(formats), ['CBZ', 'EPUB', 'PDF'])
         self.assertEqual(formats['EPUB']['format'], 'EPUB')
         self.assertTrue(formats['EPUB']['can_read_metadata'])
