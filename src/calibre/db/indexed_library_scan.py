@@ -115,3 +115,19 @@ def scan_indexed_source_roots(
 
     result['files'].sort(key=lambda item: item['file_path'].casefold())
     return result
+
+
+def supported_metadata_reader_formats() -> set[str]:
+    """Return formats handled by enabled Calibre metadata reader plugins."""
+    from calibre.customize.ui import is_disabled, metadata_readers
+
+    formats = set()
+    for plugin in metadata_readers():
+        if is_disabled(plugin):
+            continue
+        formats.update(
+            str(fmt).lower().strip().lstrip('.')
+            for fmt in getattr(plugin, 'file_types', ())
+            if str(fmt).strip()
+        )
+    return formats
