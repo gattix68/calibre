@@ -778,6 +778,13 @@ class DB:
             with self.conn:
                 for statement in INDEXED_FILES_SCHEMA:
                     self.conn.execute(statement)
+                indexed_columns = {
+                    row[1] for row in self.conn.execute('PRAGMA table_info(indexed_files)')
+                }
+                if 'device_id' not in indexed_columns:
+                    self.conn.execute('ALTER TABLE indexed_files ADD COLUMN device_id INTEGER')
+                if 'inode' not in indexed_columns:
+                    self.conn.execute('ALTER TABLE indexed_files ADD COLUMN inode INTEGER')
 
         # Guarantee that the library_id is set
         self.library_id  # ruff: ignore[useless-expression]
