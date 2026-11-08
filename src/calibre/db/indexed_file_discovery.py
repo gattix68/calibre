@@ -81,6 +81,8 @@ def discover_ebook_files(source_roots, *, supported_extensions=None):
                         'format': suffix,
                         'size': info.st_size,
                         'modified_time_ns': info.st_mtime_ns,
+                        'device_id': info.st_dev,
+                        'inode': info.st_ino,
                     })
                 except OSError as err:
                     errors.append({'path': str(path), 'error': str(err)})
