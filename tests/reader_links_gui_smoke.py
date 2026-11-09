@@ -58,6 +58,7 @@ def main() -> None:
                 dialog = SyncKomgaDialog(action)
                 dialog.open_after_sync.setChecked(False)
                 dialog.show()
+                assert dialog.windowTitle() == 'Dynamic Library Manager'
 
                 def wait() -> None:
                     deadline = time.monotonic() + 30
@@ -89,8 +90,12 @@ def main() -> None:
             action.initialization_complete()
             assert gprefs['action-layout-toolbar'] == (*custom_toolbar, 'Sync Komga Library')
             assert calls == ['init', 'update']
+            assert action.qaction.text() == 'Dynamic Library'
+            assert action.menuless_qaction.text() == 'Dynamic Library'
+            assert action.menuless_qaction.toolTip() == 'Manage Dynamic Library'
             assert not action.qaction.icon().isNull()
-            assert action.qaction.toolTip() == 'Sync Komga Library'
+            assert action.qaction.icon().pixmap(48, 48).toImage() == QIcon.ic('dynamic-library.png').pixmap(48, 48).toImage()
+            assert action.qaction.toolTip() == 'Manage Dynamic Library'
             view_action = QAction(QIcon.ic('view.png'), 'View', gui)
             gui.iactions = {'View': SimpleNamespace(qaction=view_action, popup_type=None), action.name: action}
             toolbar = ToolBar(QAction(gui), SimpleNamespace(all_actions=[]), gui)
@@ -100,14 +105,15 @@ def main() -> None:
             assert isinstance(sync_button, QToolButton) and isinstance(view_button, QToolButton)
             for style in (Qt.ToolButtonStyle.ToolButtonTextUnderIcon, Qt.ToolButtonStyle.ToolButtonTextBesideIcon):
                 toolbar.setToolButtonStyle(style)
-                assert sync_button.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonIconOnly
+                assert sync_button.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonTextUnderIcon
                 assert view_button.toolButtonStyle() == style
+            assert sync_button.font() == view_button.font()
             assert not view_action.icon().isNull()
             # Rebuilding keeps the per-action style and leaves all saved customization intact.
             toolbar.init_bar(('View', action.name))
             sync_button = toolbar.widgetForAction(action.qaction)
             assert isinstance(sync_button, QToolButton)
-            assert sync_button.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonIconOnly
+            assert sync_button.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonTextUnderIcon
             assert gprefs['action-layout-toolbar'] == (*custom_toolbar, 'Sync Komga Library')
             gprefs['action-layout-toolbar'] = custom_toolbar
             calls.clear()
@@ -124,7 +130,7 @@ def main() -> None:
                 time.sleep(0.02)
             assert action.future is None
             assert action.status == 'Pending changes: 0', action.status
-            assert action.qaction.toolTip() == 'Sync Komga Library'
+            assert action.qaction.toolTip() == 'Manage Dynamic Library'
             after = {str(p): (p.lstat().st_mtime_ns, p.lstat().st_size) for p in output.rglob('*')}
             assert before == after, 'Monitoring mutated output'
             action.shutting_down()

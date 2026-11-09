@@ -31,7 +31,7 @@ class SyncKomgaDialog(QDialog):
         self.db = action.gui.current_db.new_api
         self.plan = self.manager = self.future = None
         self.operation = ''
-        self.setWindowTitle(_('Sync Komga Library'))
+        self.setWindowTitle(_('Dynamic Library Manager'))
         self.resize(1150, 720)
         layout = QVBoxLayout(self)
         intro = QLabel(_('Choose a dedicated output folder. Review the metadata and proposed links, then click Apply. Original books stay in Calibre.'))

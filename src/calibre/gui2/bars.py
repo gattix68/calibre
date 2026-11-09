@@ -175,10 +175,10 @@ class ToolBar(QToolBar):  # {{{
     def setToolButtonStyle(self, toolButtonStyle: Qt.ToolButtonStyle) -> None:
         QToolBar.setToolButtonStyle(self, toolButtonStyle)
         for action in self.actions():
-            if action.property('calibre-icon-only'):
+            if action.property('calibre-text-under-icon'):
                 button = self.widgetForAction(action)
                 if isinstance(button, QToolButton):
-                    button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+                    button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
 
     def get_text_style(self):
         style = Qt.ToolButtonStyle.ToolButtonTextUnderIcon
@@ -248,8 +248,8 @@ class ToolBar(QToolBar):  # {{{
         # if ch is None:
         #     ch = self.child_bar.widgetForAction(ac)
         ch.setCursor(Qt.CursorShape.PointingHandCursor)
-        if ac.property('calibre-icon-only') and isinstance(ch, QToolButton):
-            ch.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        if ac.property('calibre-text-under-icon') and isinstance(ch, QToolButton):
+            ch.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         if hasattr(ch, 'setText') and hasattr(ch, 'text'):
             self.all_widgets.append(ch)
         if hasattr(ch, 'setAutoRaise'):  # is a QToolButton or similar

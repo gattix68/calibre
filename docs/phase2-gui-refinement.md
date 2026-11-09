@@ -60,3 +60,19 @@ The writable local database is
 output remain disposable. Bubblewrap keeps original book storage read-only.
 No production library, service, Komga, Kavita or Caddy configuration changed.
 The live instance is intentionally left running.
+
+## Dynamic Library presentation update
+
+The later presentation request supersedes the icon-only Sync label described
+above: the action now displays the supplied `resources/images/dynamic-library.png`
+with the native “Dynamic Library” text below it, tooltip “Manage Dynamic Library”,
+and dialog title “Dynamic Library Manager”. The internal action identifier remains
+unchanged so existing toolbar layouts and shortcuts continue to work. Other
+buttons keep their configured style and layout; synchronization is unchanged.
+
+Focused real-Qt checks passed for the rendered icon, both action labels/tooltips,
+text-under-icon styling across toolbar rebuilds/style changes, matching native
+button fonts, dialog title, customized toolbar preservation and monitoring.
+All 21 reader-link regressions, incremental native build, RapydScript, GUI icon
+resource compilation, focused formatting, lint and type checks passed. GUI Apply
+checks used temporary fixtures only; the live demo was not synchronized or restarted.

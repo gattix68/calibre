@@ -19,7 +19,8 @@ def snapshot(db, output):
 
 class SyncKomgaAction(InterfaceAction):
     name = 'Sync Komga Library'
-    action_spec = (_('Sync Komga Library'), 'sync.png', _('Sync Komga Library'), None)
+    # Keep the internal action name stable for saved toolbar layouts and shortcuts.
+    action_spec = (_('Dynamic Library'), 'dynamic-library.png', _('Manage Dynamic Library'), None)
     dont_add_to = frozenset(('context-menu-device', 'menubar-device', 'toolbar-device'))
 
     def genesis(self):
@@ -29,7 +30,7 @@ class SyncKomgaAction(InterfaceAction):
         self.dialog = None
         self.status = _('Choose a disposable output directory to begin')
         for action in (self.qaction, self.menuless_qaction):
-            action.setProperty('calibre-icon-only', True)
+            action.setProperty('calibre-text-under-icon', True)
         self.qaction.triggered.connect(self.show_dialog)
         self.timer = QTimer(self.gui)
         self.timer.setInterval(1000)
