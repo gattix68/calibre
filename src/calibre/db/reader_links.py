@@ -13,9 +13,11 @@ import math
 import os
 import re
 import stat
+import unicodedata
 import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -98,17 +100,53 @@ def component(value: str) -> str:
     return value.encode('utf-8')[:120].decode('utf-8', errors='ignore')
 
 
+def volume_number(index: float, width: int = 2, precision: int = 0) -> str:
+    """Readable decimal notation; equal fractional widths sort numerically too."""
+    if not math.isfinite(index):
+        raise ValueError(f'Invalid series index: {index!r}')
+    value = Decimal(str(index))
+    whole, separator, fraction = format(abs(value), 'f').partition('.')
+    fraction = fraction.rstrip('0')
+    number = whole.zfill(width)
+    if fraction:
+        number += '.' + fraction.ljust(precision, '0')
+    return ('-' if value < 0 else '') + number
+
+
 def komga_layout(books: list[Book]) -> list[Link]:
-    result = []
+    # Group strictly by the Series field. A book without a series gets its own
+    # title folder; ambiguous sanitized/case-folded names fail before writes.
+    groups = {}
+    folders = {}
     for book in books:
+        if not book.formats:
+            continue
         if not math.isfinite(book.series_index):
             raise ValueError(f'Invalid series index for book {book.book_id}')
-        series = book.series or f'{book.title} [{book.book_id}]'
-        # Hash avoids series merging after sanitization, truncation or case folding.
-        folder = component(series) + ' [' + hashlib.sha256(series.encode()).hexdigest()[:10] + ']'
-        for fmt, target in book.formats:
-            filename = f'{book.series_index:012.4f} - {component(book.title)} [{book.book_id}].{fmt.lower()}'
-            result.append(Link(book.book_id, fmt, folder + '/' + filename, target))
+        identity = ('series', book.series) if book.series else ('book', str(book.book_id))
+        label = book.series or book.title
+        folder = component(label)
+        key = unicodedata.normalize('NFC', folder).casefold()
+        if key in folders and folders[key] != identity:
+            raise ValueError(f'Series or standalone titles collide in output folder {folder!r}. Give them distinct names in Calibre metadata.')
+        folders[key] = identity
+        groups.setdefault(identity, []).append((folder, book))
+    result = []
+    used = {}
+    for group in sorted(groups.values(), key=lambda g: g[0][0].casefold()):
+        parts = [format(abs(Decimal(str(book.series_index))), 'f').partition('.') for folder, book in group]
+        width = max(2, *(len(whole) for whole, separator, fraction in parts))
+        precision = max(len(fraction.rstrip('0')) for whole, separator, fraction in parts)
+        for folder, book in sorted(group, key=lambda entry: (entry[1].series_index, entry[1].title.casefold(), entry[1].book_id)):
+            number = volume_number(book.series_index, width, precision)
+            for fmt, target in book.formats:
+                filename = f'{number} - {component(book.title)}.{fmt.lower()}'
+                path = folder + '/' + filename
+                key = unicodedata.normalize('NFC', path).casefold()
+                if key in used:
+                    raise ValueError(f'Books {used[key]} and {book.book_id} produce the same link {path!r}. Give them distinct titles or series indexes.')
+                used[key] = book.book_id
+                result.append(Link(book.book_id, fmt, path, target))
     return result
 
 

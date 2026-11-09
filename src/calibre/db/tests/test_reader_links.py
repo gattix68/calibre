@@ -8,7 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-from calibre.db.reader_links import JOURNAL, MANIFEST, Book, Link, LinkManager, Plan, komga_layout
+from calibre.db.reader_links import JOURNAL, MANIFEST, Book, Link, LinkManager, Plan, komga_layout, volume_number
 
 
 class ReaderLinkTests(unittest.TestCase):
@@ -165,12 +165,57 @@ class ReaderLinkTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             manager.preview([])
 
-    def test_reader_links_series_collisions_and_decimal_order(self) -> None:
-        books = [replace(self.book, series='Iron/Man', series_index=1.5), replace(self.book, book_id=2, series='Iron:Man', series_index=1.25)]
+    def test_reader_links_clean_names_and_numeric_order(self) -> None:
+        books = [replace(self.book, book_id=i + 1, series_index=index) for i, index in enumerate((11, 2, 10, 1))]
         links = komga_layout(books)
-        self.assertNotEqual(links[0].path.split('/')[0], links[1].path.split('/')[0])
-        self.assertIn('0000001.5000', links[0].path)
+        self.assertEqual([link.path for link in links], [f'Iron Man/{index:02} - Iron Man.cbz' for index in (1, 2, 10, 11)])
+        self.assertEqual([link.book_id for link in links], [4, 2, 3, 1])
+        self.assertEqual([link.path for link in links], sorted(link.path for link in links))
         self.sync(books)
+        records = json.loads((self.output / MANIFEST).read_text())['links']
+        self.assertEqual({r['book_id'] for r in records}, {1, 2, 3, 4})
+        self.assertNotIn('[', ''.join(r['path'] for r in records))
+
+    def test_reader_links_fractional_issues_preserve_precision(self) -> None:
+        books = [replace(self.book, book_id=i + 1, series_index=index) for i, index in enumerate((1.5, 1.25, 1, 2))]
+        links = komga_layout(books)
+        self.assertEqual([link.path.split(' - ')[0] for link in links], ['Iron Man/01', 'Iron Man/01.25', 'Iron Man/01.50', 'Iron Man/02'])
+        self.assertEqual([link.path for link in links], sorted(link.path for link in links))
+        self.assertEqual(volume_number(1.00001), '01.00001')
+        self.assertEqual(volume_number(0.0000001), '00.0000001')
+        self.assertEqual(volume_number(-1.25), '-01.25')
+        self.assertEqual(volume_number(-0.0), '00')
+        self.assertEqual(volume_number(1.5, width=1), '1.5')
+        self.sync(books)
+
+    def test_reader_links_padding_grows_with_series(self) -> None:
+        books = [replace(self.book, book_id=i + 1, series_index=index) for i, index in enumerate((100, 1, 10))]
+        self.assertEqual([link.path.split(' - ')[0] for link in komga_layout(books)], ['Iron Man/001', 'Iron Man/010', 'Iron Man/100'])
+
+    def test_reader_links_name_collisions_fail_without_writes(self) -> None:
+        for series in (('Iron/Man', 'Iron:Man'), ('Iron Man', 'IRON MAN'), ('A' * 121 + 'one', 'A' * 121 + 'two')):
+            with self.subTest(series=series), self.assertRaisesRegex(ValueError, 'collide'):
+                self.manager.preview(komga_layout([replace(self.book, series=series[0]), replace(self.book, book_id=2, series=series[1])]))
+        with self.assertRaisesRegex(ValueError, 'same link'):
+            komga_layout([replace(self.book, title='Iron/Man'), replace(self.book, book_id=2, title='Iron:Man')])
+        self.assertEqual(list(self.output.iterdir()), [])
+        standalone = replace(self.book, series='')
+        self.assertEqual(komga_layout([standalone])[0].path, 'Iron Man/01 - Iron Man.cbz')
+        with self.assertRaisesRegex(ValueError, 'collide'):
+            komga_layout([standalone, replace(standalone, book_id=2)])
+
+    def test_reader_links_migrate_old_names_by_stable_book_id(self) -> None:
+        old = Link(1, 'CBZ', 'Iron Man [0123456789]/0000001.0000 - Iron Man [1].cbz', str(self.file))
+        self.manager.apply(self.manager.preview([old]))
+        preview = self.manager.preview(komga_layout([self.book]))
+        self.assertEqual([change.kind for change in preview.changes], ['relocation', 'removal'])
+        self.assertTrue((self.output / old.path).is_symlink())
+        self.manager.apply(preview)
+        self.assertFalse(os.path.lexists(self.output / old.path))
+        self.assertTrue((self.output / 'Iron Man/01 - Iron Man.cbz').is_symlink())
+        self.assertEqual(json.loads((self.output / MANIFEST).read_text())['links'][0]['book_id'], 1)
+        self.assertEqual(self.file.read_bytes(), b'original bytes')
+        self.assertEqual(self.manager.preview(komga_layout([self.book])).changes, [])
 
     def test_reader_links_symlinked_output_and_missing_output(self) -> None:
         alias = self.root / 'alias'

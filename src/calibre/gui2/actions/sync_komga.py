@@ -19,7 +19,7 @@ def snapshot(db, output):
 
 class SyncKomgaAction(InterfaceAction):
     name = 'Sync Komga Library'
-    action_spec = (_('Sync Komga Library'), 'refresh.png', _('Preview and synchronize the Komga link library'), None)
+    action_spec = (_('Sync Komga Library'), 'sync.png', _('Sync Komga Library'), None)
     dont_add_to = frozenset(('context-menu-device', 'menubar-device', 'toolbar-device'))
 
     def genesis(self):
@@ -28,6 +28,8 @@ class SyncKomgaAction(InterfaceAction):
         self.future = None
         self.dialog = None
         self.status = _('Choose a disposable output directory to begin')
+        for action in (self.qaction, self.menuless_qaction):
+            action.setProperty('calibre-icon-only', True)
         self.qaction.triggered.connect(self.show_dialog)
         self.timer = QTimer(self.gui)
         self.timer.setInterval(1000)
@@ -74,7 +76,7 @@ class SyncKomgaAction(InterfaceAction):
                         self.status += _(' (interrupted synchronization; retry available)')
                 except Exception as err:
                     self.status = _('Monitoring error: %s') % str(err)
-                self.qaction.setToolTip(self.status)
+                self.qaction.setStatusTip(self.status)
         if self.ticks >= 30 and self.future is None:
             self.ticks = 0
             db = current_db.new_api

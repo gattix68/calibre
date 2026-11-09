@@ -18,6 +18,7 @@ from qt.core import (
     QVBoxLayout,
 )
 
+from calibre.db.reader_links import volume_number
 from calibre.gui2 import choose_dir, open_local_file
 from calibre.gui2.actions.sync_komga import snapshot
 from calibre.utils.localization import _
@@ -132,7 +133,14 @@ class SyncKomgaDialog(QDialog):
             sources = '\n'.join(path for fmt, path in book.formats)
             row = QTreeWidgetItem(
                 groups[series],
-                [book.title, f'{book.series_index:g}', str(book.book_id), ', '.join(book.authors), ', '.join(fmt for fmt, path in book.formats), sources],
+                [
+                    book.title,
+                    volume_number(book.series_index, width=1),
+                    str(book.book_id),
+                    ', '.join(book.authors),
+                    ', '.join(fmt for fmt, path in book.formats),
+                    sources,
+                ],
             )
             row.setToolTip(0, book.title)
             row.setToolTip(5, sources)
@@ -151,7 +159,8 @@ class SyncKomgaDialog(QDialog):
         rows = [(link.path, desired_changes.get(link.path, _('Unchanged')), link.target) for link in plan.links]
         rows.extend((change.path, change.kind, change.target) for change in plan.changes if change.kind == 'removal')
         root = QTreeWidgetItem(self.link_tree, [self.output.text()])
-        for path, kind, target in sorted(rows):
+        # Desired links are already ordered by authoritative Series Index.
+        for path, kind, target in rows:
             folder, filename = path.split('/')
             if folder not in folders:
                 folders[folder] = QTreeWidgetItem(root, [folder])
