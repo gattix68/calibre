@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # License: GPLv3
 """Phase 1 architecture regressions; all paths are disposable fixtures."""
+
 import errno
 import json
 import ntpath
@@ -45,9 +46,13 @@ class FinalReviewTests(unittest.TestCase):
     def test_resolver_rejects_nested_database_configuration(self):
         nested = self.root / 'database'
         nested.mkdir()
-        (self.root / storage.CONFIG_NAME).write_text(json.dumps({
-            'version': 1, 'database_directory': str(nested),
-        }), encoding='utf-8')
+        (self.root / storage.CONFIG_NAME).write_text(
+            json.dumps({
+                'version': 1,
+                'database_directory': str(nested),
+            }),
+            encoding='utf-8',
+        )
         with self.assertRaises(ValueError):
             storage.resolve_database_path(str(self.root))
 
@@ -74,10 +79,12 @@ class FinalReviewTests(unittest.TestCase):
         storage.validate_filesystem_path('C://Books')
         storage.validate_filesystem_path(r'\\server\share\Books')
 
+    @shared.isolated_gui_test
     def test_creation_dialog_rejects_smb_url_without_creating_directories(self):
         from calibre.db.backend import DB
         from calibre.gui2 import Application
         from calibre.gui2.dialogs.choose_library import ChooseLibrary
+
         app = Application.instance() or Application([])
         self.assertIsNotNone(app)
         callback = Mock()
@@ -91,9 +98,11 @@ class FinalReviewTests(unittest.TestCase):
         mkdir.assert_not_called()
         callback.assert_not_called()
 
+    @shared.isolated_gui_test
     def test_wizard_rejects_smb_url_before_directory_creation(self):
         from calibre.gui2 import Application
         from calibre.gui2.wizard import LibraryPage
+
         app = Application.instance() or Application([])
         self.assertIsNotNone(app)
         page = LibraryPage()
@@ -107,6 +116,7 @@ class FinalReviewTests(unittest.TestCase):
 
     def test_library_checker_missing_book_directory_is_not_a_format_repair(self):
         from calibre.library.check_library import CheckLibrary
+
         db = self.open_legacy_api()
         book_directory = self.root / db.new_api.field_for('path', 1)
         hidden = self.root.with_name('temporarily-unavailable-book')
@@ -122,6 +132,7 @@ class FinalReviewTests(unittest.TestCase):
 
     def open_legacy_api(self):
         from calibre.db.legacy import LibraryDatabase
+
         self.configure()
         db = LibraryDatabase(str(self.root))
         self.addCleanup(db.close)
@@ -130,6 +141,7 @@ class FinalReviewTests(unittest.TestCase):
 
     def test_library_checker_preserves_storage_marker(self):
         from calibre.library.check_library import CheckLibrary
+
         db = self.open_legacy_api()
         checker = CheckLibrary(str(self.root), db)
         checker.scan_library((), ())
@@ -140,6 +152,7 @@ class FinalReviewTests(unittest.TestCase):
 
     def test_library_checker_rejects_offline_storage(self):
         from calibre.library.check_library import CheckLibrary
+
         db = self.open_legacy_api()
         checker = CheckLibrary(str(self.root), db)
         with patch.object(db.backend, 'check_storage', side_effect=OSError(errno.ENOTCONN, 'offline')):
@@ -150,6 +163,7 @@ class FinalReviewTests(unittest.TestCase):
 
     def test_export_discovery_includes_separated_and_ordinary_libraries(self):
         from calibre.utils.exim import all_known_libraries
+
         db = self.open_legacy_api()
         ordinary = self.root.with_name('ordinary')
         ordinary.mkdir()
@@ -178,6 +192,7 @@ class FinalReviewTests(unittest.TestCase):
         from calibre.db.cache import import_library
         from calibre.db.tests.base import IMG
         from calibre.utils.exim import Exporter, Importer
+
         db = self.open_legacy_api()
         cache = db.new_api
         cache.set_field('comments', {1: '<p>Exported separated metadata</p>'})
@@ -205,6 +220,7 @@ class FinalReviewTests(unittest.TestCase):
 
     def test_archive_config_rewrites_current_preferences_and_stale_split_mapping(self):
         from calibre.utils.exim import Exporter, Importer
+
         self.configure()
         settings, archive, restored = (self.root.with_name(name) for name in ('settings', 'export-config', 'restored-config'))
         for path in (settings, archive, restored):
@@ -226,6 +242,7 @@ class FinalReviewTests(unittest.TestCase):
 
     def test_obsolete_backend_rejects_split_root_before_creating_database(self):
         from calibre.library.database2 import LibraryDatabase2
+
         self.configure()
         marker = (self.root / storage.CONFIG_NAME).read_bytes()
         with self.assertRaises(ValueError):
@@ -235,6 +252,7 @@ class FinalReviewTests(unittest.TestCase):
 
     def test_obsolete_backend_never_recreates_disconnected_books_root(self):
         from calibre.library.database2 import LibraryDatabase2
+
         self.configure()
         offline = self.root.with_name('offline-books')
         self.root.rename(offline)

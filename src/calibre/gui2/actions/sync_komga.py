@@ -32,12 +32,13 @@ class SyncKomgaAction(InterfaceAction):
         self.timer = QTimer(self.gui)
         self.timer.setInterval(1000)
         self.timer.timeout.connect(self.poll)
-        self.timer.start()
         self.ticks = 29
 
     def initialization_complete(self):
+        self.timer.start()
         # One-time migration for profiles whose customized toolbar predates this action.
         from calibre.gui2 import gprefs
+
         if not self.settings.get('toolbar-installed', False):
             layout = list(gprefs['action-layout-toolbar'])
             if self.name not in layout:
@@ -56,7 +57,8 @@ class SyncKomgaAction(InterfaceAction):
         self.ticks = 29
 
     def poll(self):
-        if self.dialog is not None:
+        current_db = getattr(self.gui, 'current_db', None)
+        if self.dialog is not None or current_db is None:
             return
         self.ticks += 1
         if self.future is not None:
@@ -64,7 +66,7 @@ class SyncKomgaAction(InterfaceAction):
                 return
             library_id, future = self.future_library, self.future
             self.future = None
-            if library_id == self.gui.current_db.new_api.library_id:
+            if library_id == current_db.new_api.library_id:
                 try:
                     plan = future.result()[1]
                     self.status = _('Pending changes: %d') % len(plan.changes)
@@ -75,7 +77,7 @@ class SyncKomgaAction(InterfaceAction):
                 self.qaction.setToolTip(self.status)
         if self.ticks >= 30 and self.future is None:
             self.ticks = 0
-            db = self.gui.current_db.new_api
+            db = current_db.new_api
             output = self.settings.get(db.library_id)
             if output:
                 self.future_library = db.library_id
@@ -83,6 +85,7 @@ class SyncKomgaAction(InterfaceAction):
 
     def show_dialog(self):
         from calibre.gui2.dialogs.sync_komga import SyncKomgaDialog
+
         if self.dialog is None:
             self.dialog = SyncKomgaDialog(self)
             try:

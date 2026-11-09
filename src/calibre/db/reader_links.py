@@ -6,6 +6,7 @@ Linux prototype: descriptor-relative IO and O_NOFOLLOW keep cleanup confined.
 A write-ahead ownership journal makes partial runs retryable without publishing
 an unsuccessful manifest. Empty output directories are deliberately retained.
 """
+
 import hashlib
 import json
 import math
@@ -18,6 +19,8 @@ from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from calibre.db.cache import Cache
 
 MANIFEST = '.calibre-komga-manifest.json'
@@ -74,8 +77,19 @@ def read_books(db: Cache) -> list[Book]:
                     if not path or not os.path.isfile(path):
                         raise OSError(f'Book {bid}: unavailable {fmt} source: {path}')
                     formats.append((fmt, os.path.abspath(path)))
-            books.append(Book(bid, db.field_for('title', bid), tuple(db.field_for('authors', bid)),
-                              db.field_for('series', bid) or '', db.field_for('series_index', bid) or 0, tuple(formats)))
+            index = db.field_for('series_index', bid)
+            if index is not None and not isinstance(index, (int, float)):
+                raise ValueError(f'Book {bid}: invalid series index: {index!r}')
+            books.append(
+                Book(
+                    bid,
+                    db.field_for('title', bid) or 'Unknown',
+                    tuple(db.field_for('authors', bid)),
+                    db.field_for('series', bid) or '',
+                    float(index or 0),
+                    tuple(formats),
+                )
+            )
         return books
 
 
@@ -107,16 +121,17 @@ def validate_link(link: Link) -> None:
 
 
 class LinkManager:
-    def __init__(self, output: str, library_id: str, source_roots: tuple[str, ...]):
+    def __init__(self, output: str, library_id: str, source_roots: tuple[str, ...]) -> None:
         self.output = os.path.abspath(output)
         self.library_id = library_id
         self.source_roots = source_roots
 
     @contextmanager
-    def root(self):
+    def root(self) -> Generator[int]:
         if os.name != 'posix' or not hasattr(os, 'O_NOFOLLOW'):
             raise OSError('The safe link prototype currently requires POSIX descriptor-relative IO')
         from calibre.db.separated_storage import validate_directories
+
         for source in self.source_roots:
             validate_directories(self.output, source)
         fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY)
@@ -151,8 +166,7 @@ class LinkManager:
         try:
             streamfd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
             with os.fdopen(streamfd, 'w', encoding='utf-8') as stream:
-                json.dump(dict(version=1, library_id=self.library_id, output=self.output,
-                               links=[asdict(link) for link in links]), stream, indent=2)
+                json.dump(dict(version=1, library_id=self.library_id, output=self.output, links=[asdict(link) for link in links]), stream, indent=2)
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temp, name, src_dir_fd=fd, dst_dir_fd=fd)
@@ -174,7 +188,7 @@ class LinkManager:
                     pass
 
     @contextmanager
-    def parent(self, fd: int, path: str, create: bool = False):
+    def parent(self, fd: int, path: str, create: bool = False) -> Generator[tuple[int, str]]:
         folder, name = path.split('/')
         if create:
             try:
@@ -230,9 +244,11 @@ class LinkManager:
                     if actual not in targets:
                         raise FileExistsError(f'Owned link was changed externally: {path}')
                     changes.append(Change('removal', path, actual))
-        token = hashlib.sha256(json.dumps([asdict(x) for x in links] + [asdict(x) for x in old]
-                                         + [asdict(x) for x in (journal or [])]
-                                         + [asdict(x) for x in changes], sort_keys=True).encode()).hexdigest()
+        token = hashlib.sha256(
+            json.dumps(
+                [asdict(x) for x in links] + [asdict(x) for x in old] + [asdict(x) for x in (journal or [])] + [asdict(x) for x in changes], sort_keys=True
+            ).encode()
+        ).hexdigest()
         return Plan(links, changes, token, journal is not None)
 
     def preview(self, links: list[Link]) -> Plan:
@@ -241,6 +257,7 @@ class LinkManager:
 
     def apply(self, preview: Plan) -> Plan:
         import fcntl
+
         with self.root() as fd:
             lockfd = os.open(LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=fd)
             try:

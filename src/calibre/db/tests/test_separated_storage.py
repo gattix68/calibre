@@ -1,20 +1,47 @@
 #!/usr/bin/env python
 # License: GPLv3
 """Standalone regression tests for separated database path resolution."""
+
 import errno
+import importlib
 import json
 import os
 import tempfile
 import unittest
 from contextlib import contextmanager
+from functools import wraps
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
-from calibre.db.separated_storage import (
-    CONFIG_NAME, DATABASE_CONFIG_NAME, configure_separated_storage, mark_initialized, resolve_database_path,
-)
+from calibre.db.separated_storage import CONFIG_NAME, DATABASE_CONFIG_NAME, configure_separated_storage, mark_initialized, resolve_database_path
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+
+def run_gui_test(module: str, class_name: str, method_name: str) -> None:
+    case = getattr(importlib.import_module(module), class_name)(method_name)
+    try:
+        case.setUp()
+        try:
+            getattr(type(case), method_name).__wrapped__(case)
+        finally:
+            case.tearDown()
+    finally:
+        case.doCleanups()
+
+
+def isolated_gui_test(func: Callable[[unittest.TestCase], None]) -> Callable[[unittest.TestCase], None]:
+    @wraps(func)
+    def run(self: unittest.TestCase) -> None:
+        from calibre.utils.ipc.simple_worker import fork_job
+
+        fork_job(__name__, 'run_gui_test', args=(type(self).__module__, type(self).__name__, self._testMethodName))
+
+    return run
 
 
 @contextmanager
@@ -201,9 +228,11 @@ class SeparatedStorageTests(unittest.TestCase):
 
 class SeparatedOperationsTests(unittest.TestCase):
     setUp = SeparatedStorageTests.setUp
+
     def open_library(self):
         from calibre.db.backend import DB
         from calibre.db.cache import Cache
+
         cache = Cache(DB(str(self.root)))
         cache.init()
         self.addCleanup(cache.close)
@@ -211,12 +240,14 @@ class SeparatedOperationsTests(unittest.TestCase):
 
     def create_book(self, cache):
         from calibre.ebooks.metadata.book.base import Metadata
+
         book = cache.create_book_entry(Metadata('Original title', ['Original author']))
         self.assertTrue(cache.add_format(book, 'TXT', BytesIO(b'original book'), run_hooks=False))
         return book
 
     def test_normal_library_with_smb_marker_restrictions(self):
         from calibre.db.tests.base import IMG
+
         with smb_marker_operations() as filesystem:
             configure_separated_storage(str(self.root), str(self.local))
             cache = self.open_library()
@@ -236,8 +267,9 @@ class SeparatedOperationsTests(unittest.TestCase):
                 getattr(filesystem, name).assert_not_called()
 
     def test_managed_operations_and_reopen(self):
-        from calibre.db.tests.base import IMG
         from calibre.db.legacy import LibraryDatabase
+        from calibre.db.tests.base import IMG
+
         configure_separated_storage(str(self.root), str(self.local))
         cache = self.open_library()
         book = self.create_book(cache)
@@ -313,6 +345,7 @@ class SeparatedOperationsTests(unittest.TestCase):
 
     def test_restore_database_from_book_sidecars(self):
         from calibre.db.restore import Restore
+
         configure_separated_storage(str(self.root), str(self.local))
         cache = self.open_library()
         book = self.create_book(cache)
@@ -336,6 +369,7 @@ class SeparatedOperationsTests(unittest.TestCase):
         from calibre.db.backend import DB
         from calibre.db.cache import Cache
         from calibre.db.copy_to_library import copy_one_book
+
         configure_separated_storage(str(self.root), str(self.local))
         source = self.open_library()
         book = self.create_book(source)
@@ -347,12 +381,12 @@ class SeparatedOperationsTests(unittest.TestCase):
         source.remove_books({book})
         self.assertNotIn(book, source.all_book_ids())
 
+    @isolated_gui_test
     def test_creation_dialog_and_switch_to_existing(self):
-        from types import SimpleNamespace
-
         from calibre.db.backend import DB
         from calibre.gui2 import Application
         from calibre.gui2.dialogs.choose_library import ChooseLibrary
+
         app = Application.instance() or Application([])
         self.assertIsNotNone(app)
         current = SimpleNamespace(library_path=str(self.root.with_name('current')), exists_at=DB.exists_at)
@@ -381,9 +415,11 @@ class SeparatedOperationsTests(unittest.TestCase):
             self.assertEqual(len(opened), 2)
             self.assertEqual(len(opened[1].all_book_ids()), 1)
 
+    @isolated_gui_test
     def test_welcome_wizard_creation(self):
         from calibre.gui2 import Application
         from calibre.gui2.wizard import LibraryPage
+
         app = Application.instance() or Application([])
         self.assertIsNotNone(app)
         page = LibraryPage()
@@ -440,9 +476,8 @@ class SeparatedOperationsTests(unittest.TestCase):
         self.assertFalse((self.root / 'metadata.db').exists())
 
     def test_startup_does_not_recreate_disconnected_books_root(self):
-        from types import SimpleNamespace
-
         from calibre.gui2.main import AbortInit, get_library_path
+
         configure_separated_storage(str(self.root), str(self.local))
         offline = self.root.with_name('offline-books')
         self.root.rename(offline)

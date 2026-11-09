@@ -166,3 +166,12 @@ XDG data directory and run with `QT_QPA_PLATFORM=offscreen`,
 `/opt/calibre/calibre-debug -e tests/reader_links_gui_smoke.py`. It constructs and
 removes its own disposable library/output. Do not run it with production
 application preferences: toolbar migration is deliberately exercised.
+
+## Follow-up native build and desktop verification
+
+See [Linux Mint build and desktop verification](phase2-linux-mint-verification.md)
+for the isolated dependency setup, native build, standard 265-test runner,
+quality-check results, actual Iron Man desktop synchronization and original hash
+verification. The earlier qmake/uv blockers are resolved for this checkout.
+Repository-wide legacy lint/type failures and container path visibility remain
+separate recorded limitations.

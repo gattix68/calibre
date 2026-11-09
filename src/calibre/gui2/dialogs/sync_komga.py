@@ -95,10 +95,10 @@ class SyncKomgaDialog(QDialog):
             if self.operation == 'preview':
                 self.manager, self.plan = result
                 self.action.settings[self.db.library_id] = self.output.text()
-                self.report.setPlainText('\n'.join(f'{x.kind.upper()}: {x.path}\n  → {x.target}' for x in self.plan.changes)
-                                         or _('No pending link changes.'))
-                self.status.setText(_('Preview: %d pending changes') % len(self.plan.changes)
-                                    + (_(' — interrupted run will be reconciled') if self.plan.recovering else ''))
+                self.report.setPlainText('\n'.join(f'{x.kind.upper()}: {x.path}\n  → {x.target}' for x in self.plan.changes) or _('No pending link changes.'))
+                self.status.setText(
+                    _('Preview: %d pending changes') % len(self.plan.changes) + (_(' — interrupted run will be reconciled') if self.plan.recovering else '')
+                )
             else:
                 self.status.setText(_('Synchronization complete: %d changes; %d links verified') % (len(result.changes), len(result.links)))
                 self.report.appendPlainText(self.status.text())
@@ -117,6 +117,6 @@ class SyncKomgaDialog(QDialog):
         if self.future is None:
             super().reject()
 
-    def done(self, result):
+    def done(self, a0: int) -> None:
         if self.future is None:
-            super().done(result)
+            super().done(a0)
