@@ -55,6 +55,7 @@ def main() -> None:
             with ThreadPoolExecutor(max_workers=1) as executor:
                 action = SimpleNamespace(gui=gui, settings={db.library_id: str(output)}, executor=executor, status='Waiting')
                 dialog = SyncKomgaDialog(action)
+                dialog.open_after_sync.setChecked(False)
                 dialog.show()
 
                 def wait() -> None:

@@ -14,7 +14,7 @@ from calibre.utils.localization import _
 def snapshot(db, output):
     manager = LinkManager(output, db.library_id, (db.backend.library_path, os.path.dirname(db.backend.dbpath)))
     books = read_books(db)
-    return manager, manager.preview(komga_layout(books))
+    return manager, manager.preview(komga_layout(books)), books
 
 
 class SyncKomgaAction(InterfaceAction):

@@ -183,3 +183,35 @@ successful discovery of 14 linked books in four series, cover and comic-page
 retrieval, complete-book hash matches and a duplicate-free deep rescan. Original
 before/after hashes match. Remote production-container inspection and browser
 reader UI testing remain explicitly unverified; no production mappings changed.
+
+## Hands-on Calibre workflow
+
+The sync dialog now includes **Books and volumes**, showing Calibre series,
+series indexes, book IDs, authors, formats and resolved Calibre file locations.
+**Preview: folders and links** shows the destination as a directory tree with
+proposed filenames, change types and symbolic-link targets. Destination selection
+is explicit and remembered per library in the active application configuration.
+**Results and errors** retains the operation report.
+
+**Open output folder** opens the configured destination using Calibre's normal
+file-manager integration. The checked-by-default option to open it after a
+successful synchronization runs only after the user clicks **Apply previewed
+changes** and link verification succeeds. Preview never applies changes.
+
+A live, user-operated demonstration is prepared under
+`/tmp/calibre-link-manager-demo`, with its own configuration, writable separated
+metadata database (`database/metadata.db`) and empty disposable `output` folder.
+The local managed-library fixture (`library`) references the existing 14 test
+CBZs through symlinks and copies only their cover/OPF sidecars. No ebook contents
+are copied. A read-only filesystem namespace protects the originals while the
+local demo library, database and destination remain writable. This also permits
+local metadata experimentation without altering production library metadata.
+A fresh profile suppresses Calibre's automatic Quick Start Guide import.
+
+The actual desktop GUI is left open with the dedicated toolbar button visible,
+the sync dialog open, four series displayed and 14 proposed additions. The user
+chooses whether to apply; no automatic application or shutdown is scheduled.
+The demonstration launcher/log/readiness state live in the disposable demo
+folder, not production launchers. This hands-on demo does not contact or change
+Komga. The existing automated GUI smoke disables automatic folder opening to
+avoid launching desktop windows during future unattended regression runs.
