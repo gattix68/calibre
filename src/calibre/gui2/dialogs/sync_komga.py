@@ -5,6 +5,7 @@ from collections import Counter
 
 from qt.core import (
     QCheckBox,
+    QDesktopServices,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -15,11 +16,13 @@ from qt.core import (
     QTimer,
     QTreeWidget,
     QTreeWidgetItem,
+    QUrl,
     QVBoxLayout,
 )
 
+from calibre.constants import sanitize_env_vars
 from calibre.db.reader_links import volume_number
-from calibre.gui2 import choose_dir, open_local_file
+from calibre.gui2 import choose_dir, error_dialog
 from calibre.gui2.actions.sync_komga import snapshot
 from calibre.utils.localization import _
 
@@ -101,13 +104,31 @@ class SyncKomgaDialog(QDialog):
 
     def open_output_folder(self):
         path = self.output.text()
-        if path and os.path.isdir(path):
-            open_local_file(path)
+        if not path or not os.path.isdir(path):
+            error_dialog(
+                self,
+                _('Output folder unavailable'),
+                _('The configured output directory does not exist or is unavailable. Check the path and connect any network storage, then try again.'),
+                det_msg=path or _('No output folder configured'),
+                show=True,
+            )
+            return
+        # Qt encodes spaces, Unicode and UNC/network paths without shell quoting.
+        with sanitize_env_vars():
+            opened = QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+        if not opened:
+            error_dialog(
+                self,
+                _('Could not open output folder'),
+                _('The system could not open the output directory. Check that a default file manager is configured.'),
+                det_msg=path,
+                show=True,
+            )
 
     def busy(self, value):
         for button in (self.choose, self.preview_button, self.close_button):
             button.setEnabled(not value)
-        self.open_output.setEnabled(not value and os.path.isdir(self.output.text()))
+        self.open_output.setEnabled(not value)
         self.apply_button.setEnabled(not value and self.plan is not None)
 
     def preview(self):

@@ -10,7 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from qt.core import QAction, QIcon, Qt, QToolButton, QWidget
+from qt.core import QAction, QIcon, Qt, QToolButton, QUrl, QWidget
 
 from calibre.db.backend import DB
 from calibre.db.cache import Cache
@@ -68,6 +68,41 @@ def main() -> None:
                     assert dialog.future is None, 'UI worker timeout'
 
                 wait()
+                # Click the actual button; no external applications or sync writes.
+                module = 'calibre.gui2.dialogs.sync_komga'
+                spaced = Path(root) / 'output with spaces # and é'
+                spaced.mkdir()
+                with patch(module + '.QDesktopServices.openUrl', return_value=True) as opener, patch(module + '.error_dialog') as error:
+                    for destination in (output, spaced):
+                        assert destination.is_dir(), destination
+                        dialog.output.setText(str(destination))
+                        dialog.open_output.click()
+                        url = opener.call_args.args[0]
+                        assert url == QUrl.fromLocalFile(str(destination))
+                        assert url.toLocalFile() == str(destination)
+                    # UNC shares and mounted network paths must go through fromLocalFile.
+                    for destination in ('//server/share/Comics with spaces', '/run/user/1000/gvfs/smb-share:server=nas,share=comics/Issue 1'):
+                        dialog.output.setText(destination)
+                        with patch(module + '.os.path.isdir', return_value=True):
+                            dialog.open_output.click()
+                        assert opener.call_args.args[0] == QUrl.fromLocalFile(destination)
+                    error.assert_not_called()
+                    opener.reset_mock()
+                    for destination in ('', str(spaced / 'missing'), str(source / 'not a directory')):
+                        dialog.output.setText(destination)
+                        dialog.busy(False)
+                        assert dialog.open_output.isEnabled()
+                        dialog.open_output.click()
+                        assert error.call_args.kwargs['show']
+                        assert error.call_args.kwargs['det_msg']
+                    opener.assert_not_called()
+                    error.reset_mock()
+                    dialog.output.setText(str(output))
+                    opener.return_value = False
+                    dialog.open_output.click()
+                    error.assert_called_once()
+                    assert error.call_args.args[1] == 'Could not open output folder'
+                dialog.output.setText(str(output))
                 assert dialog.plan is not None, dialog.status.text()
                 assert 'ADDITION' in dialog.report.toPlainText()
                 assert dialog.apply_button.isEnabled()

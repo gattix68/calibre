@@ -76,3 +76,39 @@ button fonts, dialog title, customized toolbar preservation and monitoring.
 All 21 reader-link regressions, incremental native build, RapydScript, GUI icon
 resource compilation, focused formatting, lint and type checks passed. GUI Apply
 checks used temporary fixtures only; the live demo was not synchronized or restarted.
+
+## Open output folder correction
+
+The button now validates the current configured directory, constructs its URL
+with `QUrl.fromLocalFile`, and calls `QDesktopServices.openUrl` with Calibre's
+standard external-process environment sanitization. Missing/unavailable paths
+and a rejected desktop launch show actionable error dialogs with the path.
+The button remains available when idle so a missing directory can be explained.
+Synchronization, naming and toolbar code are unchanged.
+
+The disposable SDK launcher's specific failure was also diagnosed in its log:
+`gio: ... Failed to execute child process “gio-launch-desktop”`. The SDK GLib
+contains a build-time helper path under `/sw/tmp` that is unavailable locally.
+The existing `/tmp/calibre-link-manager-demo/launch_demo.sh` now exports:
+
+```sh
+export GIO_LAUNCH_DESKTOP=/usr/lib/x86_64-linux-gnu/glib-2.0/gio-launch-desktop
+```
+
+This selects Mint's already-installed helper for this development process only;
+no system package, production configuration or service was changed. Preserve
+this setting when recreating that temporary launcher on this Mint host.
+
+Real-Qt button regression checks cover current destination selection, spaces,
+Unicode, URL-special characters, UNC/mounted network paths, missing destinations,
+and a false return from Qt, without launching external apps in automated tests.
+The existing GUI preview/apply/repeat checks passed using temporary fixtures.
+Incremental native build, RapydScript, focused formatting/lint/type checks passed.
+
+Relaunched the isolated development GUI (PID 2903467 at verification), and clicked
+the actual button against `/tmp/calibre-link-manager-demo/output`. The desktop
+file manager listed an `output` window for that exact directory. The manager and
+main GUI remain open; preview reports 14 books, 14 links, zero pending changes.
+Existing disposable output entries, timestamps and link targets were unchanged;
+no live synchronization was executed. No original books were modified. Only the
+prior disposable demo process was eligible for termination before launch.
