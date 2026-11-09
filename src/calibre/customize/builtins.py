@@ -917,6 +917,12 @@ plugins += [GoogleBooks, GoogleImages, Amazon, Edelweiss, OpenLibrary]
 # Interface Actions {{{
 
 
+class ActionSyncKomga(InterfaceActionBase):
+    name = 'Sync Komga Library'
+    actual_plugin = 'calibre.gui2.actions.sync_komga:SyncKomgaAction'
+    description = _('Preview and synchronize a Komga symbolic-link library')
+
+
 class ActionAdd(InterfaceActionBase):
     name = 'Add Books'
     actual_plugin = 'calibre.gui2.actions.add:AddAction'
@@ -1264,6 +1270,7 @@ class ActionPluginUpdater(InterfaceActionBase):
 
 plugins += [
     ActionAdd,
+    ActionSyncKomga,
     ActionAllActions,
     ActionColumnTooltip,
     ActionFetchAnnotations,
