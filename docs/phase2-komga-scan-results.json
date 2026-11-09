@@ -1,0 +1,245 @@
+{
+  "version": "1.30.0",
+  "base": "http://127.0.0.1:27600",
+  "library_id": "0S606Y078D7G3",
+  "library_root": "/tmp/calibre-phase2-verification/iron-man-gui-output",
+  "series_count": 4,
+  "book_count": 14,
+  "ready_books": 14,
+  "covers_decoded": 14,
+  "interior_pages_decoded": 14,
+  "full_download_hashes_match": true,
+  "repeated_deep_scan_no_duplicates": true,
+  "book_ids_stable": true,
+  "series_ids_stable": true,
+  "interior_page_number": 10,
+  "original_hashes_before_after_match": true,
+  "total_pages": 2742,
+  "pending_tasks": 0,
+  "database_integrity": "ok",
+  "namespace_missing_targets_resolved": 0,
+  "namespace_present_targets_resolved": 14,
+  "browser_ui_verified": false,
+  "remote_deployment_inspected": false,
+  "series": [
+    {
+      "id": "0S606Y0BRDFF3",
+      "name": "Green Arrow: Year One",
+      "books": 1
+    },
+    {
+      "id": "0S606Y0E4DF8Q",
+      "name": "Green Arrow: by Kevin Smith (2001-2007)",
+      "books": 1
+    },
+    {
+      "id": "0S606Y0F0DD1N",
+      "name": "Invincible Iron Man (2008-2012)",
+      "books": 11
+    },
+    {
+      "id": "0S606Y0N4DE28",
+      "name": "Green Arrow: The Trial of Oliver Queen",
+      "books": 1
+    }
+  ],
+  "book_checks": [
+    {
+      "calibre_id": 1,
+      "komga_id": "0S606Y0F0DD1M",
+      "pages": 368,
+      "sha256": "595bd28f760b006221c19d84644419cc20ebf351486db0faa1278d2bc50cbf83",
+      "cover_size": [
+        195,
+        300
+      ],
+      "interior_page_10_size": [
+        1988,
+        3056
+      ]
+    },
+    {
+      "calibre_id": 2,
+      "komga_id": "0S606Y0DWDDTA",
+      "pages": 159,
+      "sha256": "a248bdcf11d5e0dbf789dd8edc4d86882c4e5285b38fba19850119ae53d74bdd",
+      "cover_size": [
+        195,
+        300
+      ],
+      "interior_page_10_size": [
+        3975,
+        3056
+      ]
+    },
+    {
+      "calibre_id": 3,
+      "komga_id": "0S606Y0NWD644",
+      "pages": 624,
+      "sha256": "248eb45b266b3b2344f38d80bec6051ea8611726b532041077361be17160e8d1",
+      "cover_size": [
+        195,
+        300
+      ],
+      "interior_page_10_size": [
+        1988,
+        3057
+      ]
+    },
+    {
+      "calibre_id": 4,
+      "komga_id": "0S606Y0G8DD8S",
+      "pages": 160,
+      "sha256": "ba6608d8f363d6dc7957313752c261b509b81e6863b98d23c6fbcdd394167431",
+      "cover_size": [
+        195,
+        300
+      ],
+      "interior_page_10_size": [
+        2063,
+        3131
+      ]
+    },
+    {
+      "calibre_id": 5,
+      "komga_id": "0S606Y0N0DCAG",
+      "pages": 165,
+      "sha256": "90d1ca203f38db11c987d9e2033a0c51a9318ac4aa702a4b847cef03c859707a",
+      "cover_size": [
+        194,
+        300
+      ],
+      "interior_page_10_size": [
+        2063,
+        3131
+      ]
+    },
+    {
+      "calibre_id": 6,
+      "komga_id": "0S606Y0KCDBAJ",
+      "pages": 171,
+      "sha256": "137f238acbf6d7d4b0b38afa6651039d22cd18afbc00b27f04c56995ee4f2e6e",
+      "cover_size": [
+        193,
+        300
+      ],
+      "interior_page_10_size": [
+        2063,
+        3131
+      ]
+    },
+    {
+      "calibre_id": 7,
+      "komga_id": "0S606Y0H8DCBQ",
+      "pages": 117,
+      "sha256": "cd2ced3ae316c82067a0aab807ec81da47c0cd2fed3cd6c3f2a069f129dc754b",
+      "cover_size": [
+        194,
+        300
+      ],
+      "interior_page_10_size": [
+        1988,
+        3056
+      ]
+    },
+    {
+      "calibre_id": 8,
+      "komga_id": "0S606Y0JCD5WB",
+      "pages": 138,
+      "sha256": "856823863e99523f1a1dec6a86a1a3f2dde9a16fd54d803398348c83ca80b086",
+      "cover_size": [
+        194,
+        300
+      ],
+      "interior_page_10_size": [
+        1988,
+        3056
+      ]
+    },
+    {
+      "calibre_id": 9,
+      "komga_id": "0S606Y0MGD96D",
+      "pages": 165,
+      "sha256": "4a270ff57f6a5318a0adf9f68f49d0cea2937d33d2f31c05c9359fe1730b78fb",
+      "cover_size": [
+        194,
+        300
+      ],
+      "interior_page_10_size": [
+        1988,
+        3056
+      ]
+    },
+    {
+      "calibre_id": 10,
+      "komga_id": "0S606Y0JWD7TF",
+      "pages": 106,
+      "sha256": "dea44fbcdcdff01937f26111a96f4bb6388bfa99520f9cc75211bcd2be42bbe2",
+      "cover_size": [
+        198,
+        300
+      ],
+      "interior_page_10_size": [
+        1988,
+        3056
+      ]
+    },
+    {
+      "calibre_id": 11,
+      "komga_id": "0S606Y0HWDFDA",
+      "pages": 144,
+      "sha256": "abe94b1659adc0cd32a3103e127f04388f2f795f93f03e0fe0c4f874f395f6e6",
+      "cover_size": [
+        194,
+        300
+      ],
+      "interior_page_10_size": [
+        2063,
+        3131
+      ]
+    },
+    {
+      "calibre_id": 12,
+      "komga_id": "0S606Y0M0D3JP",
+      "pages": 164,
+      "sha256": "1804d4d8a16eb115805854510d18a83bcb23021a5167ece4036b3b9192f3a06e",
+      "cover_size": [
+        198,
+        300
+      ],
+      "interior_page_10_size": [
+        2063,
+        3131
+      ]
+    },
+    {
+      "calibre_id": 13,
+      "komga_id": "0S606Y0FRDD6J",
+      "pages": 124,
+      "sha256": "fc3cccf0a15a43476f9ae7269791c3c85f987decc7dbdf2cab6cbcf915e912b5",
+      "cover_size": [
+        199,
+        300
+      ],
+      "interior_page_10_size": [
+        2063,
+        3131
+      ]
+    },
+    {
+      "calibre_id": 14,
+      "komga_id": "0S606Y0GRD2HD",
+      "pages": 137,
+      "sha256": "7203cb06644c1d423ff1091eec5d1370deeb4fd833e90d007312e3ae8fe41e19",
+      "cover_size": [
+        196,
+        300
+      ],
+      "interior_page_10_size": [
+        2063,
+        3131
+      ]
+    }
+  ],
+  "temporary_instance_stopped": true
+}

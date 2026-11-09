@@ -175,3 +175,11 @@ quality-check results, actual Iron Man desktop synchronization and original hash
 verification. The earlier qmake/uv blockers are resolved for this checkout.
 Repository-wide legacy lint/type failures and container path visibility remain
 separate recorded limitations.
+
+## Actual Komga scanner/read verification
+
+[Isolated Komga scan verification](phase2-komga-scan-verification.md) records
+successful discovery of 14 linked books in four series, cover and comic-page
+retrieval, complete-book hash matches and a duplicate-free deep rescan. Original
+before/after hashes match. Remote production-container inspection and browser
+reader UI testing remain explicitly unverified; no production mappings changed.
